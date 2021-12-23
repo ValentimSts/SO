@@ -125,6 +125,23 @@ int inode_create(inode_type n_type) {
             } else {
                 /* In case of a new file, simply sets its size to 0 */
                 inode_table[inumber].i_size = 0;
+
+                // TODO: review this implementation
+
+                /* initializes all the i_data_blocks indexes as -1 (indicating that
+                   there is currently no data block associated with the file) */
+                /*
+                for (int i = 0; i < MAX_FILE_BLOCKS; i++)
+                    inode_table[inumber].i_data_blocks[i] = -1;
+
+                inode_table[inumber].i_curr_block = 0;
+
+                for (int i = 0; i < INDIRECT_BLOCK_SIZE; i++)
+                    inode_table[inumber].i_indirect_block[i] = -1;
+
+                inode_table[inumber].i_curr_indir = 0;
+                */
+
                 inode_table[inumber].i_data_block = -1;
             }
             return inumber;
@@ -151,6 +168,12 @@ int inode_delete(int inumber) {
     freeinode_ts[inumber] = FREE;
 
     if (inode_table[inumber].i_size > 0) {
+
+        // TODO: review implementation (involve the if statement in the new for)
+
+        /*
+        for(size_t i = 0; i < inode_table[inumber].i_curr_block; i++)
+        */
         if (data_block_free(inode_table[inumber].i_data_block) == -1) {
             return -1;
         }
@@ -291,6 +314,9 @@ void *data_block_get(int block_number) {
     }
 
     insert_delay(); // simulate storage access delay to block
+
+    // TODO: possibly change the return value, since we are not restricted to 
+    //       one data block only
     return &fs_data[block_number * BLOCK_SIZE];
 }
 

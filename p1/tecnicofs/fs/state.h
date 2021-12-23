@@ -17,6 +17,12 @@ typedef struct {
 
 typedef enum { T_FILE, T_DIRECTORY } inode_type;
 
+
+// TODO: review
+/*
+#define INDIRECT_BLOCK_SIZE (BLOCK_SIZE / sizeof(. . ?))
+*/
+
 /*
  * I-node
  */
@@ -25,6 +31,19 @@ typedef struct {
     size_t i_size;
     int i_data_block;
     /* in a real FS, more fields would exist here */
+
+    // TODO: review this implementation (i_data_block would disappear)
+
+    /*
+    // array of 10 direct referenced data blocks (indexes to them) and one last
+    // indirect refererenced block (MAX_FILE_BLOCKS is defined in "config.h")
+
+    int i_data_blocks[MAX_FILE_BLOCKS];
+    int i_curr_block;
+    int i_indirect_block[INDIRECT_BLOCK_SIZE];
+    int i_curr_indir;
+    */
+
 } inode_t;
 
 typedef enum { FREE = 0, TAKEN = 1 } allocation_state_t;

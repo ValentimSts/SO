@@ -11,6 +11,7 @@
 ## V
 
 - Added update log to README.md file
+- Added TODO's all over the code with commented code, to be reviewed
 
 ## J
 

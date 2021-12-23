@@ -99,6 +99,14 @@ int tfs_open(char const *name, int flags) {
 int tfs_close(int fhandle) { return remove_from_open_file_table(fhandle); }
 
 ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
+    // TODO: review implementations
+
+    /* Size of the remaining characters to wtite, in case the block
+       isn't big enough */
+    /*
+    size_t write_scraps = 0;
+    */
+
     open_file_entry_t *file = get_open_file_entry(fhandle);
     if (file == NULL) {
         return -1;
@@ -112,15 +120,39 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
 
     /* Determine how many bytes to write */
     if (to_write + file->of_offset > BLOCK_SIZE) {
+        // TODO: changes here, to implement multiple block files
+
+        /* 
+        size_t temp = to_write;
+        */
         to_write = BLOCK_SIZE - file->of_offset;
+        /*
+        write_scraps = temp - to_write;
+        */
     }
 
     if (to_write > 0) {
+
         if (inode->i_size == 0) {
+            // Don't increment i_curr_block just now, since we want to access it
+            // later
+
+            /* If empty file, allocate new block */
+            /*
+            inode->i_data_blocks[i_curr_block] = data_block_alloc();
+            */
+
             /* If empty file, allocate new block */
             inode->i_data_block = data_block_alloc();
         }
 
+        // TODO: the data block will most likely be accessed through i_data_blocks[i_curr_block]
+        /*
+        if (inode->i_curr_block + 1 < 10)
+            void *block = data_block_get(inode->i_data_blocks[i_curr_block++]);
+        else
+            void *block = data_block_get(inode->i_data_blocks[i_curr_indir++]);
+        */
         void *block = data_block_get(inode->i_data_block);
         if (block == NULL) {
             return -1;
@@ -129,10 +161,30 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
         /* Perform the actual write */
         memcpy(block + file->of_offset, buffer, to_write);
 
+        /*
+        if (write_scraps > 0) {
+            // TODO: understand how the indirect reference block really works, and
+            //       discuss if recursion would be a thread safe option here
+
+            // if (inode->i_curr_block + 1 < 10) {} else { . . . } -> maybe??
+
+            tfs_write(fhandle, buffer + to_write, write_scraps);
+            file->of_offset += write_scraps;
+        }
+        else {
+            file->of_offset += to_write;
+        }
+        */
+
         /* The offset associated with the file handle is
          * incremented accordingly */
         file->of_offset += to_write;
+
+        // this would happen if there was still stuff to write but since we have more
+        // blocks now we need a new approach
         if (file->of_offset > inode->i_size) {
+
+            // TODO: the size of the i_node won't change, the i_curr_block will just be incremented
             inode->i_size = file->of_offset;
         }
     }
@@ -142,6 +194,8 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
 
 
 ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
+    // TODO: change tfs_read to work with multiple block files
+
     open_file_entry_t *file = get_open_file_entry(fhandle);
     if (file == NULL) {
         return -1;
