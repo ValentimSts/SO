@@ -150,8 +150,11 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
         /*
         if (inode->i_curr_block + 1 < 10)
             void *block = data_block_get(inode->i_data_blocks[i_curr_block++]);
-        else
+        else {
+            if (inode->i_curr_indir == INDIRECT_BLOCK_SIZE)
+                return -1;
             void *block = data_block_get(inode->i_data_blocks[i_curr_indir++]);
+        }
         */
         void *block = data_block_get(inode->i_data_block);
         if (block == NULL) {
