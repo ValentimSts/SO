@@ -111,7 +111,13 @@ int inode_create(inode_type n_type) {
                 }
 
                 inode_table[inumber].i_size = BLOCK_SIZE;
-                inode_table[inumber].i_data_block = b;
+                inode_table[inumber].i_dir_block= b;
+
+                /* TODO: understand if its better to initialize the arrays or not */
+
+                /* indicates that no files will be associated with the inode */
+                inode_table[inumber].i_curr_block = -1;
+                inode_table[inumber].i_curr_indir = -1;
 
                 dir_entry_t *dir_entry = (dir_entry_t *)data_block_get(b);
                 if (dir_entry == NULL) {
@@ -125,24 +131,22 @@ int inode_create(inode_type n_type) {
             } else {
                 /* In case of a new file, simply sets its size to 0 */
                 inode_table[inumber].i_size = 0;
-
-                // TODO: review this implementation
+                /* Indicates that the inode is not a directory */
+                inode_table[inumber].i_dir_block = -1;
 
                 /* initializes all the i_data_blocks indexes as -1 (indicating that
                    there is currently no data block associated with the file) */
-                /*
-                for (int i = 0; i < MAX_FILE_BLOCKS; i++)
+                for (size_t i = 0; i < MAX_FILE_BLOCKS; i++)
                     inode_table[inumber].i_data_blocks[i] = -1;
 
                 inode_table[inumber].i_curr_block = 0;
 
-                for (int i = 0; i < INDIRECT_BLOCK_SIZE; i++)
+                /* Same goes for the indirect block */
+                for (size_t i = 0; i < INDIRECT_BLOCK_SIZE; i++)
                     inode_table[inumber].i_indirect_block[i] = -1;
 
                 inode_table[inumber].i_curr_indir = 0;
-                */
 
-                inode_table[inumber].i_data_block = -1;
             }
             return inumber;
         }
@@ -169,14 +173,34 @@ int inode_delete(int inumber) {
 
     if (inode_table[inumber].i_size > 0) {
 
-        // TODO: review implementation (involve the if statement in the new for)
-
-        /*
-        for(size_t i = 0; i < inode_table[inumber].i_curr_block; i++)
-        */
-        if (data_block_free(inode_table[inumber].i_data_block) == -1) {
-            return -1;
+        if (inode_table[inumber].i_node_type == T_DIRECTORY) {
+            /* Deletes the directory */
+            if (data_block_free(inode_table[inumber].i_dir_block) == -1) {
+                return -1;
+            }
         }
+        else {
+            /* The i_node is a file, and so we delete every block associated
+               with it (direct and indirect referenced).
+               If the first index of either the direct or indirect referenced
+               data blocks is != -1 it means they have been used*/
+
+            if (inode_table[inumber].i_data_blocks[0] != -1) {
+                for (size_t i = 0; i <= inode_table[inumber].i_curr_block; i++) {
+                    if (data_block_free(inode_table[inumber].i_data_blocks[i]) == -1) {
+                        return -1;
+                    }
+                }
+            }
+            if (inode_table[inumber].i_indirect_block[0] != -1) {
+                for (size_t i = 0; i <= inode_table[inumber].i_curr_indir; i++) {
+                    if (data_block_free(inode_table[inumber].i_indirect_block[i]) == -1) {
+                        return -1;
+                    }
+                }
+            }
+        }
+        
     }
 
     return 0;
@@ -221,7 +245,7 @@ int add_dir_entry(int inumber, int sub_inumber, char const *sub_name) {
 
     /* Locates the block containing the directory's entries */
     dir_entry_t *dir_entry =
-        (dir_entry_t *)data_block_get(inode_table[inumber].i_data_block);
+        (dir_entry_t *)data_block_get(inode_table[inumber].i_dir_block);
     if (dir_entry == NULL) {
         return -1;
     }
@@ -254,7 +278,7 @@ int find_in_dir(int inumber, char const *sub_name) {
 
     /* Locates the block containing the directory's entries */
     dir_entry_t *dir_entry =
-        (dir_entry_t *)data_block_get(inode_table[inumber].i_data_block);
+        (dir_entry_t *)data_block_get(inode_table[inumber].i_dir_block);
     if (dir_entry == NULL) {
         return -1;
     }
