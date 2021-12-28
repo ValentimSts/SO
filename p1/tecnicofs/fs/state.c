@@ -177,7 +177,9 @@ int inode_delete(int inumber) {
 
     if (inode_table[inumber].i_size > 0) {
         /* Free all the data blocks associated with the inode */
-        free_inode_blocks(inumber);
+        if(free_inode_blocks(inumber) == -1) {
+            return -1;
+        }
     }
 
     return 0;
@@ -397,4 +399,6 @@ int free_inode_blocks(int inumber) {
             return -1;
         }
     }
+
+    return 0;
 }

@@ -1,4 +1,4 @@
-#include "../fs/operations.h"
+#include "fs/operations.h"
 #include <assert.h>
 #include <string.h>
 
@@ -15,6 +15,7 @@
 int main() {
 
     char *path = "/f1";
+    int counter = 0;
 
     /* Writing this buffer multiple times to a file stored on 1KB blocks will 
        always hit a single block (since 1KB is a multiple of SIZE=256) */
@@ -30,7 +31,9 @@ int main() {
     assert(fd != -1);
     for (int i = 0; i < COUNT; i++) {
         assert(tfs_write(fd, input, SIZE) == SIZE);
+        counter++;
     }
+    printf("%d\n", counter);
     assert(tfs_close(fd) != -1);
 
     /* Open again to check if contents are as expected */
