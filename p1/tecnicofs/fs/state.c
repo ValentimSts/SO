@@ -111,14 +111,19 @@ int inode_create(inode_type n_type) {
                 }
 
                 inode_table[inumber].i_size = BLOCK_SIZE;
-                
-                /* Since the inode is a directory we only need 1 data block to be allocated, which 
-                 * means, i_data_blocks will be of size 1 */
-                inode_table[inumber].i_data_blocks = (int**) malloc(sizeof(int*) * 1);
+
+                /* Since the inode is a directory we only use one of the data blocks,
+                 * the first one. */
+                inode_table[inumber].i_data_blocks[0] = b;
                 inode_table[inumber].i_curr_block = 0;
 
-                /* We initialize the indirect block as NULL since we won't need it */
-                inode_table[inumber].i_indirect_block = NULL;
+                /* The remaining data blocks are initialized with -1, since they won't
+                 * be used */
+                for (size_t i = 1; i < MAX_FILE_BLOCKS; i++) {
+                    inode_table[inumber].i_data_blocks[i] = -1;
+                }
+                /* Likewise, the indirect block is also set to -1, as it won't be used */
+                inode_table[inumber].i_indir_block = -1;
                 inode_table[inumber].i_curr_indir = -1;
 
                 dir_entry_t *dir_entry = (dir_entry_t *)data_block_get(b);
@@ -133,26 +138,19 @@ int inode_create(inode_type n_type) {
             } else {
                 /* In case of a new file, simply sets its size to 0 */
                 inode_table[inumber].i_size = 0;
+                
+                /* We initialize every data block entry with a -1, meaning they
+                 * are empty */
+                for (size_t i = 0; i < MAX_FILE_BLOCKS; i++) {
+                    inode_table[inumber].i_data_blocks[i] = -1;
+                }
+                /* the current data block is also initialized at -1, as we haven't
+                 * actually used the data blocks */
+                inode_table[inumber].i_curr_block = -1;
 
-                /* We allocate the memory needed for i_data_blocks and i_indirect_block */
-                inode_table[inumber].i_data_blocks = (int**) malloc(sizeof(int*) * MAX_FILE_BLOCKS);
-                inode_table[inumber].i_indirect_block = (int**) malloc(sizeof(int*) * INDIRECT_BLOCK_SIZE);
-
-                int no_data = -1;
-
-                /* initializes all the i_data_blocks indexes as -1 (indicating that
-                   there is currently no data block associated with the file) */
-                for (size_t i = 0; i < MAX_FILE_BLOCKS; i++)
-                    inode_table[inumber].i_data_blocks[i] = &no_data;
-
-                inode_table[inumber].i_curr_block = 0;
-
-                /* Same goes for the indirect block */
-                for (size_t i = 0; i < INDIRECT_BLOCK_SIZE; i++)
-                    inode_table[inumber].i_indirect_block[i] = &no_data;
-
-                inode_table[inumber].i_curr_indir = 0;
-
+                /* the indirect block is also set to -1 */
+                inode_table[inumber].i_indir_block = -1;
+                inode_table[inumber].i_curr_indir = -1;                
             }
             return inumber;
         }
@@ -178,30 +176,8 @@ int inode_delete(int inumber) {
     freeinode_ts[inumber] = FREE;
 
     if (inode_table[inumber].i_size > 0) {
-
-        /* We delete every block associated with the inode
-         * (direct and indirect referenced) and since both files and directories
-         * are stored in the same variable we dont need different cases for each one.
-         * If the first index of either the direct or indirect referenced
-         * data blocks is != -1 it means they have been used */
-        if (*inode_table[inumber].i_data_blocks[0] != -1) {
-            for (size_t i = 0; i <= inode_table[inumber].i_curr_block; i++) {
-
-                if (data_block_free(*inode_table[inumber].i_data_blocks[i]) == -1) {
-                    return -1;
-                }
-            }
-        }
-        /* In the case of files, we have to check if the indirect block has beed used or not,
-         * and delete its content if it has */
-        if (*inode_table[inumber].i_indirect_block[0] != -1) {
-            for (size_t i = 0; i <= inode_table[inumber].i_curr_indir; i++) {
-
-                if (data_block_free(*inode_table[inumber].i_indirect_block[i]) == -1) {
-                    return -1;
-                }
-            }
-        }
+        /* Free all the data blocks associated with the inode */
+        free_inode_blocks(inumber);
     }
 
     return 0;
@@ -246,7 +222,7 @@ int add_dir_entry(int inumber, int sub_inumber, char const *sub_name) {
 
     /* Locates the block containing the directory's entries */
     dir_entry_t *dir_entry =
-        (dir_entry_t *)data_block_get(*inode_table[inumber].i_data_blocks[0]);
+        (dir_entry_t *)data_block_get(inode_table[inumber].i_data_blocks[0]);
     if (dir_entry == NULL) {
         return -1;
     }
@@ -279,7 +255,7 @@ int find_in_dir(int inumber, char const *sub_name) {
 
     /* Locates the block containing the directory's entries */
     dir_entry_t *dir_entry =
-        (dir_entry_t *)data_block_get(*inode_table[inumber].i_data_blocks[0]);
+        (dir_entry_t *)data_block_get(inode_table[inumber].i_data_blocks[0]);
     if (dir_entry == NULL) {
         return -1;
     }
@@ -339,9 +315,6 @@ void *data_block_get(int block_number) {
     }
 
     insert_delay(); // simulate storage access delay to block
-
-    // TODO: possibly change the return value, since we are not restricted to 
-    //       one data block only
     return &fs_data[block_number * BLOCK_SIZE];
 }
 
@@ -390,35 +363,38 @@ open_file_entry_t *get_open_file_entry(int fhandle) {
 }
 
 
-/* Frees all the data associated with an i_node (direct/indirect referenced blocks)
+/* Frees all the data blocks associated with an inode
  * Inputs:
- *   - The inumber for the i_node we want to free
- * Returns: 0 if it was successful, -1  otherwise
+ *   - inumber: i-node's number
+ * Returns: 0 if successful -1 otherwise 
  */
-int inode_data_block_free(int inumber) {
+int free_inode_blocks(int inumber) {
     if (!valid_inumber(inumber)) {
         return -1;
     }
 
-    /* Checks if there have been direct reference data blocks used
-     * for that i_node */
-    if (*inode_table[inumber].i_data_blocks[0] != -1) {
-        /* Free each data block used by the file/directory */
-        for(size_t i = 0; i <= inode_table[inumber].i_curr_block; i++) {
-            data_block_free(*inode_table[inumber].i_data_blocks[i]);
-            *inode_table[inumber].i_data_blocks[i] = -1;
+    /* Free all the direct referenced data blocks associated with
+     * the inode */
+    for(size_t i = 0; i < MAX_FILE_BLOCKS; i++) {
+        if (data_block_free(inode_table[inumber].i_data_blocks[i]) == -1) {
+            return -1;
         }
     }
+    /* If we have an indirect block allocated we free it */
+    if (inode_table[inumber].i_indir_block != -1) {
+        /* We get the indirect block */
+        int *block = (int *)data_block_get(inode_table[inumber].i_indir_block);
 
-    /* For files, we check if the indirect block is in use and if yes, we free the 
-     * extra data blocks */
-    if(*inode_table[inumber].i_indirect_block[0] != -1) {
-        /* Free each extra data block in the indirect block used by the file */
-        for(size_t i = 0; i <= inode_table[inumber].i_curr_indir; i++) {
-            data_block_free(*inode_table[inumber].i_indirect_block[i]);
-            *inode_table[inumber].i_indirect_block[i] = -1;
+        /* Free all the blocks in the indirect block */
+        for (size_t i = 0; i < inode_table[inumber].i_curr_indir; i++) {
+            if (data_block_free(block[i]) == -1) {
+                return -1;
+            }
+        }
+
+        /* Free the data block itself */
+        if (data_block_free(inode_table[inumber].i_indir_block) == -1) {
+            return -1;
         }
     }
-
-    return 0;
 }

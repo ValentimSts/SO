@@ -17,7 +17,6 @@ typedef struct {
 
 typedef enum { T_FILE, T_DIRECTORY } inode_type;
 
-
 /*
  * I-node
  */
@@ -25,18 +24,16 @@ typedef struct {
     inode_type i_node_type;
     size_t i_size;
 
-    /* "array" of data blocks, if the inode is associated with a file,
+    /* array of data blocks, if the inode is associated with a file,
      * i_data_blocks will store up to 10 direct referenced data blocks (their indexes), 
      * if inode is a directory, it will only store 1 data block */
-    int **i_data_blocks;
+    int i_data_blocks[MAX_FILE_BLOCKS];
     int i_curr_block;
 
-    /* The same happens with i_indirect_block, but this "array" will only
-     * have memory allocated if needed and for files only, this memory being
-     * more data blocks (their indexes), but this time indirectly referenced */
-    int **i_indirect_block;
+    /* Stores the index of the indirect referenced data block to be used by a file,
+     * if necessary */
+    int i_indir_block;
     int i_curr_indir;
-
 } inode_t;
 
 typedef enum { FREE = 0, TAKEN = 1 } allocation_state_t;
@@ -49,7 +46,7 @@ typedef struct {
     size_t of_offset;
 } open_file_entry_t;
 
-#define INDIRECT_BLOCK_SIZE (BLOCK_SIZE / sizeof(int))
+#define INDIR_BLOCK_SIZE (BLOCK_SIZE / sizeof(int))
 #define MAX_DIR_ENTRIES (BLOCK_SIZE / sizeof(dir_entry_t))
 
 void state_init();
@@ -70,6 +67,6 @@ void *data_block_get(int block_number);
 int add_to_open_file_table(int inumber, size_t offset);
 int remove_from_open_file_table(int fhandle);
 open_file_entry_t *get_open_file_entry(int fhandle);
-int inode_data_block_free(int inumber);
+int free_inode_blocks(int inumber);
 
 #endif // STATE_H

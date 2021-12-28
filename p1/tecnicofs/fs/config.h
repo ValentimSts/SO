@@ -10,11 +10,8 @@
 #define MAX_OPEN_FILES (20)
 #define MAX_FILE_NAME (40)
 
-
-// TODO: review this
-#define MAX_FILE_BLOCKS (10)
-
-
 #define DELAY (5000)
+
+#define MAX_FILE_BLOCKS (10)
 
 #endif // CONFIG_H

@@ -57,24 +57,15 @@ int tfs_open(char const *name, int flags) {
         /* Trucate (if requested) */
         if (flags & TFS_O_TRUNC) {
             if (inode->i_size > 0) {
-                if (inode_data_block_free(inum) == -1) {
-                    return -1;
-                }
+                /* Frees all the data blocks associated with the inode */
+                free_inode_blocks(inum);
                 inode->i_size = 0;
             }
         }
         /* Determine initial offset */
         if (flags & TFS_O_APPEND) {
+            offset = inode->i_size;
 
-            /* If the file has multiple blocks associated with it, we 
-             * determine the correct offset (end of the last block used) */
-            if (inode->i_size > BLOCK_SIZE) {
-                size_t number_of_blocks = inode->i_size / BLOCK_SIZE;
-                offset = inode->i_size - BLOCK_SIZE*number_of_blocks;
-            }
-            else {
-                offset = inode->i_size;
-            }
         } else {
             offset = 0;
         }
@@ -109,7 +100,7 @@ int tfs_close(int fhandle) { return remove_from_open_file_table(fhandle); }
 
 ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
     /* Size of the remaining characters to wtite, in case the block
-       isn't big enough */
+     * isn't big enough */
     size_t write_scraps = 0;
 
     open_file_entry_t *file = get_open_file_entry(fhandle);
@@ -128,52 +119,119 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
         size_t temp = to_write;
         to_write = BLOCK_SIZE - file->of_offset;
 
-        /* If there are still blocks available for the rest of the
-         * string we want to erite */
-        if (inode->i_curr_indir != INDIRECT_BLOCK_SIZE-1) {
+        /* If there are still blocks available for the rest of the data we want
+         * to write. If there are still indirect blocks available it means that
+         * there is atleast one data block available, whether that block is a 
+         * direct one or not, it doesn't matter to us now.  */
+        if (inode->i_curr_indir < INDIR_BLOCK_SIZE - 1) {
             write_scraps = temp - to_write;
         }
     }
 
     if (to_write > 0) {
-
         if (inode->i_size == 0) {
-            /* If empty file, allocate new block */
-            *inode->i_data_blocks[inode->i_curr_block] = data_block_alloc();
+            /* If empty file, allocate new blocks */
+            for (size_t i = 0; i < MAX_FILE_BLOCKS; i++) {
+                inode->i_data_blocks[i] = data_block_alloc();
+
+                if (inode->i_data_blocks[i] == -1) {
+                    return -1;
+                }
+            }
+
+            /* After allocating all the blocks we must start writing stuff
+             * on the first one, and so, i_curr_block is set to 0 */
+            inode->i_curr_block = 0;
         }
 
         void *block = NULL;
 
-        /* We are still in the direct blocks */
-        if (inode->i_curr_block < MAX_FILE_BLOCKS) {
-            block = data_block_get(*inode->i_data_blocks[inode->i_curr_block++]);
-        }
-        else {
-            /* We're already using the indirect block.
-             * If "i_cur_indir" == INDIRECT_BLOCK_SIZE, then there is no more
-             * memory left for that file, and so we return-1 (error) */
-            if (inode->i_curr_indir == INDIRECT_BLOCK_SIZE)
+        /* If there are no more direct referenced blocks available, we must
+         * use the indirect one */
+        if (inode->i_curr_block == MAX_FILE_BLOCKS) {
+
+            /* If the inode doesn't have an indirect block, we initialize it */
+            if (inode->i_indir_block == -1) {
+                /* Allocates a new indirect data block */
+                inode->i_indir_block = data_block_alloc();
+                if (inode->i_indir_block == -1) {
+                    return -1;
+                }
+
+                inode->i_curr_indir = 0;
+
+                /* We get the indirect block */
+                int *temp = (int *)data_block_get(inode->i_indir_block);
+                if (temp == NULL) {
+                    return -1;
+                }
+
+                /* Initialize the indirect block's content as -1, meaning
+                 * it is currently empty */
+                for (size_t i = 0; i < INDIR_BLOCK_SIZE; i++) {
+                    temp[i] = -1;
+                } 
+            }
+
+            /* We get the indirect block */
+            int *temp = (int *)data_block_get(inode->i_indir_block);
+            if (temp == NULL) {
                 return -1;
-            block = data_block_get(*inode->i_data_blocks[inode->i_curr_indir++]);
+            }
+
+            /* We need to allocate a new block for the idirect block */
+            if (temp[inode->i_curr_indir] == -1) {
+
+                temp[inode->i_curr_indir] = data_block_alloc();
+                if (temp[inode->i_curr_indir] == -1) {
+                    return -1;
+                }
+            }
+
+            /* We finally get the block we need to write our data */
+            block = data_block_get(temp[inode->i_curr_indir]);
+
+            /* When write_scraps is greater than 0, it means we still have data
+             * to write, in other words, we need an extra block to write the rest
+             * of the data, and so, we increment i_curr_indir */
+            if (write_scraps > 0) {
+                inode->i_curr_indir++;
+            }
+        }
+        else {  
+            block = data_block_get(inode->i_data_blocks[inode->i_curr_block]);
+
+            /* Just like we did with the indirect block curr variable, we do the
+             * same with the direct block curr variable */
+            if (write_scraps > 0) {
+                inode->i_curr_indir++;
+            }
         }
 
         if (block == NULL) {
             return -1;
         }
+        
+        /* Finds the "true offset", since the offset is incremented the same
+         * way as the inode size (when it comes to tfs_write), the actual offset we
+         * want is the offset of the current block we are in, and so we find
+         * that value */
+        size_t number_of_blocks = inode->i_size / BLOCK_SIZE;
+        size_t real_offset = inode->i_size - number_of_blocks * BLOCK_SIZE;
 
         /* Perform the actual write */
-        memcpy(block + file->of_offset, buffer, to_write);
+        memcpy(block + real_offset, buffer, to_write);
+
 
         /* The offset associated with the file handle is
          * incremented accordingly */
-        if (write_scraps > 0) {
-            /* TODO: review later. Understand how offset works!!*/
-            
+        if (write_scraps > 0) {            
             /* We have already filled a block so the size is incremented accordingly */
             inode->i_size += BLOCK_SIZE;
 
-            /* Resets the offset since we are now in a new block */
-            file->of_offset = write_scraps;
+            /* Finds the right offset after the write */
+            file->of_offset = inode->i_size;
+
             tfs_write(fhandle, buffer + to_write, write_scraps);
         }
         else {
@@ -181,19 +239,23 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
         }
 
         inode->i_size += file->of_offset;
+
+        /*
+        file->of_offset += to_write;
+        if (file->of_offset > inode->i_size) {
+            inode->i_size = file->of_offset;
+        }
+        */
     }
 
-    if (write_scraps > 0) {
-        to_write += write_scraps;
-    }
+    /* We return the true ammount of data we wrote on the file */
+    to_write += write_scraps;
 
     return (ssize_t)to_write;
 }
 
 
 ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
-    // TODO: change tfs_read to work with multiple block files
-
     open_file_entry_t *file = get_open_file_entry(fhandle);
     if (file == NULL) {
         return -1;
@@ -212,20 +274,25 @@ ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
     }
 
     if (to_read > 0) {
-        int block_index;
+        
+        /* Finds the block where the offset is, aswell as the "actual"
+         * offset for that same block. (similar to the tfs_write "real_offset"
+         * logic) */
+        size_t offset_block = file->of_offset / BLOCK_SIZE;
+        size_t real_offset = file->of_offset - offset_block * BLOCK_SIZE;
 
-        /* TODO: add comments */
+        void *block = NULL;
 
-        if (inode->i_curr_block < MAX_FILE_BLOCKS) {
-            block_index = inode->i_curr_block;
+        /* In case the offset block is one of the direct blocks */
+        if (offset_block < MAX_FILE_BLOCKS) {
+            block = data_block_get(inode->i_data_blocks[offset_block]);
         }
+        /* The offset block is an indirect one */
         else {
-            if (inode->i_curr_indir == INDIRECT_BLOCK_SIZE)
-                return -1;
-            block_index = inode->i_curr_indir;
+            int *temp = (int *)data_block_get(inode->i_indir_block);
+            block = data_block_get(temp[offset_block - MAX_FILE_BLOCKS]);
         }
 
-        void *block = data_block_get(block_index);
         if (block == NULL) {
             return -1;
         }
