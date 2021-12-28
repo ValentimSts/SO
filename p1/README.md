@@ -16,8 +16,9 @@
 
 ## J
 
-- 
+- :3
 
 ## V/J
 
 - Added the codes and stuff ("finished" 1.). Need to review "TODO" comments
+- Finished 1 

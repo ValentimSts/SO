@@ -239,13 +239,6 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
         }
 
         inode->i_size += file->of_offset;
-
-        /*
-        file->of_offset += to_write;
-        if (file->of_offset > inode->i_size) {
-            inode->i_size = file->of_offset;
-        }
-        */
     }
 
     /* We return the true ammount of data we wrote on the file */
