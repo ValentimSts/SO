@@ -13,6 +13,7 @@
 - Added update log to README.md file
 - Added TODO's all over the code with commented code, to be reviewed
 - Changed the i_node parameters to use pointers. Changed methods accordingly (need to review tfs_read)
+- Fixed some stuff, need to fix write/read (curr block incrementation). Commented on the copy_to_external files to compile the program, as it wouldn't run otherwise (need tfs_copy_to_external_file)
 
 ## J
 
