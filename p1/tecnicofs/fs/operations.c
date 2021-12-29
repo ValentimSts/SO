@@ -203,10 +203,7 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
             /* When write_scraps is greater than 0, it means we still have data
              * to write, in other words, we need an extra block to write the rest
              * of the data, and so, we increment i_curr_indir */
-
-            /* TODO: fix i_curr_block/idir increment */
-
-            if (write_scraps > 0) {
+            if (write_scraps > 0 || to_write + real_offset == BLOCK_SIZE) {
                 inode->i_curr_indir++;
             }
         }
@@ -215,11 +212,8 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
 
             /* Just like we did with the indirect block curr variable, we do the
              * same with the direct block curr variable */
-
-            /* TODO: fix i_curr_block/idir increment */
-
-            if (write_scraps > 0) {
-                inode->i_curr_indir++;
+            if (write_scraps > 0 || to_write + real_offset == BLOCK_SIZE) {
+                inode->i_curr_block++;
             }
         }
 
@@ -230,9 +224,12 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
         /* Perform the actual write */
         memcpy(block + real_offset, buffer, to_write);
 
+        /* Debugging */
+        /*
         char *block_content = (char *)block;
         printf("inode size: %ld\nfile offset: %ld\nreal offset: %ld\nbytes written: %ld\nblock content (write):\n%s\n----\n",
                 inode->i_size, file->of_offset, real_offset, to_write, block_content);
+        */
 
         /* The offset associated with the file handle is
          * incremented accordingly */
@@ -285,7 +282,6 @@ ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
          * offset for that same block. (similar to the tfs_write "real_offset"
          * logic) */
         size_t offset_block = file->of_offset / BLOCK_SIZE;
-        printf("offset block: %ld\n", offset_block);
         size_t real_offset = file->of_offset - offset_block * BLOCK_SIZE;
 
         void *block = NULL;
@@ -309,13 +305,17 @@ ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
         /* The offset associated with the file handle is
          * incremented accordingly */
 
+        /* Debugging */
+        /*
         char *buffer_content = (char *)buffer;
         char *block_content = (char *)block;
-
         printf("file offset: %ld\nreal offset: %ld\ndata read:\n%s\n-----\n",file->of_offset, real_offset, buffer_content);
         printf("block content:\n%s\n----\n", block_content);
+        */
+
         file->of_offset += to_read;
     }
 
     return (ssize_t)to_read;
 }
+
