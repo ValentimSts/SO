@@ -122,28 +122,19 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
      * that value */
     size_t number_of_blocks = inode->i_size / BLOCK_SIZE;
     size_t real_offset = inode->i_size - number_of_blocks * BLOCK_SIZE;
-
-    /* Debugging */
-    printf("to write: %ld\n", to_write);
+    
 
     /* Determine how many bytes to write */
     if (to_write + real_offset > BLOCK_SIZE) {
-
-        printf("joao1\n");
-
         size_t temp = to_write;
-        to_write = BLOCK_SIZE - file->of_offset;
+        to_write = BLOCK_SIZE - real_offset;
 
         /* If there are still blocks available for the rest of the data we want
          * to write. If there are still indirect blocks available it means that
          * there is atleast one data block available, whether that block is a 
-         * direct one or not, it doesn't matter to us now.  */
-
-        printf("curr indir: %d\nindir size: %ld\n", inode->i_curr_indir, INDIR_BLOCK_SIZE);
-        printf("if value: %d\n", inode->i_curr_indir < (INDIR_BLOCK_SIZE));
-
-        if (inode->i_curr_indir < (INDIR_BLOCK_SIZE - 1)) {
-            printf("joao2\n");
+         * direct one or not, it doesn't matter to us now. (For some reason we have
+         * to make a cast to int for the "if" to work) */
+        if ((int) inode->i_curr_indir < (int) (INDIR_BLOCK_SIZE - 1)) {
             write_scraps = temp - to_write;
         }
     }
@@ -236,30 +227,23 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
         memcpy(block + real_offset, buffer, to_write);
 
         /* Debugging */
-        
+        /*
         char *block_content = (char *)block;
         printf("inode size: %ld\nfile offset: %ld\nwrite scraps: %ld\nreal offset: %ld\nbytes written: %ld\nblock content (write):\n%s\n----\n",
                 inode->i_size, file->of_offset, write_scraps, real_offset, to_write, block_content);
-        
+        */
 
-        /* The offset associated with the file handle is
+        /* The offset  and i-node size associated with the file handle are
          * incremented accordingly */
-        if (write_scraps > 0) {            
-            /* We have already filled a block so the size is incremented accordingly */
+        inode->i_size += to_write;
+        file->of_offset += to_write;
 
-            /* TODO: review this */
-            inode->i_size += to_write;
-
-            /* Finds the right offset after the write */
-            file->of_offset = inode->i_size;
-
+        /* If write_scraps is greater than 0 it means we still have data to
+         * write, and so we do a recursive call to finish writing the remaining
+         * data */
+        if (write_scraps > 0) {
             tfs_write(fhandle, buffer + to_write, write_scraps);
         }
-        else {
-            file->of_offset += to_write;
-        }
-
-        inode->i_size += to_write;
     }
 
     /* We return the true ammount of data we wrote to the file */
