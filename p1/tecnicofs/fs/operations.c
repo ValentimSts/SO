@@ -206,7 +206,7 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
 
             /* TODO: fix i_curr_block/idir increment */
 
-            if (write_scraps > 0 || to_write + real_offset == BLOCK_SIZE) {
+            if (write_scraps > 0) {
                 inode->i_curr_indir++;
             }
         }
@@ -218,7 +218,7 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
 
             /* TODO: fix i_curr_block/idir increment */
 
-            if (write_scraps > 0 || to_write + real_offset == BLOCK_SIZE) {
+            if (write_scraps > 0) {
                 inode->i_curr_indir++;
             }
         }
@@ -227,18 +227,20 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
             return -1;
         }
 
-
         /* Perform the actual write */
         memcpy(block + real_offset, buffer, to_write);
 
         char *block_content = (char *)block;
-        printf("block content (write):\n%s\n----\n", block_content);
+        printf("inode size: %ld\nfile offset: %ld\nreal offset: %ld\nbytes written: %ld\nblock content (write):\n%s\n----\n",
+                inode->i_size, file->of_offset, real_offset, to_write, block_content);
 
         /* The offset associated with the file handle is
          * incremented accordingly */
         if (write_scraps > 0) {            
             /* We have already filled a block so the size is incremented accordingly */
-            inode->i_size += BLOCK_SIZE;
+
+            /* TODO: review this */
+            inode->i_size += to_write;
 
             /* Finds the right offset after the write */
             file->of_offset = inode->i_size;
@@ -249,7 +251,7 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
             file->of_offset += to_write;
         }
 
-        inode->i_size += file->of_offset;
+        inode->i_size += to_write;
     }
 
     /* We return the true ammount of data we wrote to the file */
