@@ -123,8 +123,14 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
     size_t number_of_blocks = inode->i_size / BLOCK_SIZE;
     size_t real_offset = inode->i_size - number_of_blocks * BLOCK_SIZE;
 
+    /* Debugging */
+    printf("to write: %ld\n", to_write);
+
     /* Determine how many bytes to write */
     if (to_write + real_offset > BLOCK_SIZE) {
+
+        printf("joao1\n");
+
         size_t temp = to_write;
         to_write = BLOCK_SIZE - file->of_offset;
 
@@ -132,7 +138,12 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
          * to write. If there are still indirect blocks available it means that
          * there is atleast one data block available, whether that block is a 
          * direct one or not, it doesn't matter to us now.  */
-        if (inode->i_curr_indir < INDIR_BLOCK_SIZE - 1) {
+
+        printf("curr indir: %d\nindir size: %ld\n", inode->i_curr_indir, INDIR_BLOCK_SIZE);
+        printf("if value: %d\n", inode->i_curr_indir < (INDIR_BLOCK_SIZE));
+
+        if (inode->i_curr_indir < (INDIR_BLOCK_SIZE - 1)) {
+            printf("joao2\n");
             write_scraps = temp - to_write;
         }
     }
@@ -225,11 +236,11 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
         memcpy(block + real_offset, buffer, to_write);
 
         /* Debugging */
-        /*
+        
         char *block_content = (char *)block;
-        printf("inode size: %ld\nfile offset: %ld\nreal offset: %ld\nbytes written: %ld\nblock content (write):\n%s\n----\n",
-                inode->i_size, file->of_offset, real_offset, to_write, block_content);
-        */
+        printf("inode size: %ld\nfile offset: %ld\nwrite scraps: %ld\nreal offset: %ld\nbytes written: %ld\nblock content (write):\n%s\n----\n",
+                inode->i_size, file->of_offset, write_scraps, real_offset, to_write, block_content);
+        
 
         /* The offset associated with the file handle is
          * incremented accordingly */
