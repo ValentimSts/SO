@@ -334,10 +334,11 @@ int tfs_copy_to_external_fs(char const *source_path, char const *dest_path) {
     }
 
     size_t size = inode->i_size;
+
     /* Declare a buffer with enough space for all the file's content */
     char buffer[size];
 
-    /* Read the file's content and store it in the buffer */
+    /* Read the file's content and stores it in the buffer */
     if (tfs_read(fd, buffer, size) != size) {
         return -1;
     }
@@ -345,7 +346,8 @@ int tfs_copy_to_external_fs(char const *source_path, char const *dest_path) {
     /* Opens the file given as the des_path in write mode, if that file
      * does not exist then it is created, if it does, all its content is
      * erased and the file is considered as a new empty file (functionality
-     * already implemented by the fopen() function) */
+     * already implemented by the fopen() function)
+     * - See: https://www.ibm.com/docs/en/i/7.1?topic=functions-fopen-open-files */
     FILE *fp = fopen(dest_path, "w");
     if (fp == NULL) {
         return -1;
@@ -355,12 +357,13 @@ int tfs_copy_to_external_fs(char const *source_path, char const *dest_path) {
     if (fwrite(buffer, 1, size, fp) != size) {
         return -1;
     }
-
-    /* Close the file */
+    
+    /* Close the external FS file */
     if (fclose(fp) == EOF) {
         return -1;
     }
 
+    /* Close the TecnicoFS file */
     if (tfs_close(fd) == -1) {
         return -1;
     }
