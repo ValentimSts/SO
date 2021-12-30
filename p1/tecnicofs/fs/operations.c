@@ -204,7 +204,9 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
 
             /* When write_scraps is greater than 0, it means we still have data
              * to write, in other words, we need an extra block to write the rest
-             * of the data, and so, we increment i_curr_indir */
+             * of the data, and so, we increment i_curr_indir. If write_scraps is
+             * 0 but we filled a block, then we also increment i_curr_indir, since
+             * there is no more empty space in that block */
             if (write_scraps > 0 || to_write + real_offset == BLOCK_SIZE) {
                 inode->i_curr_indir++;
             }
@@ -314,3 +316,54 @@ ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
     return (ssize_t)to_read;
 }
 
+
+int tfs_copy_to_external_fs(char const *source_path, char const *dest_path) {
+    int fd = tfs_open(source_path, 0);
+    if (fd == -1) {
+        return -1;
+    }
+
+    int inum = tfs_lookup(source_path);
+    if (inum == -1) {
+        return -1;
+    }
+
+    inode_t *inode = inode_get(inum);
+    if (inode == NULL) {
+        return -1;
+    }
+
+    size_t size = inode->i_size;
+    /* Declare a buffer with enough space for all the file's content */
+    char buffer[size];
+
+    /* Read the file's content and store it in the buffer */
+    if (tfs_read(fd, buffer, size) != size) {
+        return -1;
+    }
+
+    /* Opens the file given as the des_path in write mode, if that file
+     * does not exist then it is created, if it does, all its content is
+     * erased and the file is considered as a new empty file (functionality
+     * already implemented by the fopen() function) */
+    FILE *fp = fopen(dest_path, "w");
+    if (fp == NULL) {
+        return -1;
+    }
+
+    /* Perform the actua write to the file */
+    if (fwrite(buffer, 1, size, fp) != size) {
+        return -1;
+    }
+
+    /* Close the file */
+    if (fclose(fp) == EOF) {
+        return -1;
+    }
+
+    if (tfs_close(fd) == -1) {
+        return -1;
+    }
+
+    return 0;
+}

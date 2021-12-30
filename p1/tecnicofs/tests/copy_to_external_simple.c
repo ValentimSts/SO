@@ -3,16 +3,14 @@
 #include <string.h>
 #include <unistd.h>
 
-/* TODO: take comments out (just for debugging) */
 
 int main() {
 
     char *str = "AAA! AAA! AAA! ";
     char *path = "/f1";
-    /*
+    
     char *path2 = "external_file.txt";
     char to_read[40];
-    */
 
     assert(tfs_init() != -1);
 
@@ -23,7 +21,6 @@ int main() {
 
     assert(tfs_close(file) != -1);
 
-    /*
     assert(tfs_copy_to_external_fs(path, path2) != -1);
 
     FILE *fp = fopen(path2, "r");
@@ -37,7 +34,6 @@ int main() {
     assert(fclose(fp) != -1);
 
     unlink(path2);
-    */
 
     printf("Successful test.\n");
 
