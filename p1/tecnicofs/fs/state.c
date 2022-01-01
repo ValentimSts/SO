@@ -5,8 +5,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <pthread.h>
 
-/* Persistent FS state  (in reality, it should be maintained in secondary
+
+/* Persistent FS state (in reality, it should be maintained in secondary
  * memory; for simplicity, this project maintains it in primary memory) */
 
 /* I-node table */
@@ -65,6 +67,15 @@ static void insert_delay() {
  * Initializes FS state
  */
 void state_init() {
+
+    /* TODO: review this */
+
+    pthread_mutex_t *mutex;
+
+    /* Initializes the mutex for lock usage */
+    pthread_mutex_init(mutex, NULL);
+    pthread_mutex_lock(mutex);
+
     for (size_t i = 0; i < INODE_TABLE_SIZE; i++) {
         freeinode_ts[i] = FREE;
     }
@@ -76,6 +87,9 @@ void state_init() {
     for (size_t i = 0; i < MAX_OPEN_FILES; i++) {
         free_open_file_entries[i] = FREE;
     }
+
+    pthread_mutex_unlock(mutex);
+    pthread_mutex_destroy(mutex);
 }
 
 void state_destroy() { /* nothing to do */
