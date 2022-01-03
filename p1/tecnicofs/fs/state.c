@@ -67,15 +67,6 @@ static void insert_delay() {
  * Initializes FS state
  */
 void state_init() {
-
-    /* TODO: review this */
-
-    pthread_mutex_t *mutex;
-
-    /* Initializes the mutex for lock usage */
-    pthread_mutex_init(mutex, NULL);
-    pthread_mutex_lock(mutex);
-
     for (size_t i = 0; i < INODE_TABLE_SIZE; i++) {
         freeinode_ts[i] = FREE;
     }
@@ -87,9 +78,6 @@ void state_init() {
     for (size_t i = 0; i < MAX_OPEN_FILES; i++) {
         free_open_file_entries[i] = FREE;
     }
-
-    pthread_mutex_unlock(mutex);
-    pthread_mutex_destroy(mutex);
 }
 
 void state_destroy() { /* nothing to do */
@@ -103,6 +91,13 @@ void state_destroy() { /* nothing to do */
  *  new i-node's number if successfully created, -1 otherwise
  */
 int inode_create(inode_type n_type) {
+    /* TODO: review this */
+    pthread_mutex_t mutex;
+
+    /* Initializes the mutex for lock usage */
+    pthread_mutex_init(&mutex, NULL);
+    pthread_mutex_lock(&mutex);
+
     for (int inumber = 0; inumber < INODE_TABLE_SIZE; inumber++) {
         if ((inumber * (int) sizeof(allocation_state_t) % BLOCK_SIZE) == 0) {
             insert_delay(); // simulate storage access delay (to freeinode_ts)
@@ -166,9 +161,18 @@ int inode_create(inode_type n_type) {
                 inode_table[inumber].i_indir_block = -1;
                 inode_table[inumber].i_curr_indir = -1;                
             }
+
+            /* TODO: what do? this? */
+            pthread_mutex_unlock(&mutex);
+            pthread_mutex_destroy(&mutex);
+
             return inumber;
         }
     }
+
+    pthread_mutex_unlock(&mutex);
+    pthread_mutex_destroy(&mutex);
+
     return -1;
 }
 
