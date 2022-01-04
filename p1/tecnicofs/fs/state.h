@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/types.h>
+#include <pthread.h>
 
 /*
  * Directory entry
@@ -34,6 +35,11 @@ typedef struct {
      * if necessary */
     int i_indir_block;
     int i_curr_indir;
+
+    /* TODO: review this */
+    pthread_mutex_t i_lock;
+    pthread_rwlock_t i_rwlock;
+
 } inode_t;
 
 typedef enum { FREE = 0, TAKEN = 1 } allocation_state_t;

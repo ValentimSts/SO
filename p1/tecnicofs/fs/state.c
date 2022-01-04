@@ -91,12 +91,8 @@ void state_destroy() { /* nothing to do */
  *  new i-node's number if successfully created, -1 otherwise
  */
 int inode_create(inode_type n_type) {
-    /* TODO: review this */
-    pthread_mutex_t mutex;
 
-    /* Initializes the mutex for lock usage */
-    pthread_mutex_init(&mutex, NULL);
-    pthread_mutex_lock(&mutex);
+    /* TODO: review lock initialization */
 
     for (int inumber = 0; inumber < INODE_TABLE_SIZE; inumber++) {
         if ((inumber * (int) sizeof(allocation_state_t) % BLOCK_SIZE) == 0) {
@@ -125,6 +121,9 @@ int inode_create(inode_type n_type) {
                  * the first one. */
                 inode_table[inumber].i_data_blocks[0] = b;
                 inode_table[inumber].i_curr_block = 0;
+
+                /* Initializes the i-node's mutex, for future locking */
+                pthread_mutex_init(&inode_table[inumber].i_lock, NULL);
 
                 /* The remaining data blocks are initialized with -1, since they won't
                  * be used */
@@ -157,21 +156,17 @@ int inode_create(inode_type n_type) {
                  * actually used the data blocks */
                 inode_table[inumber].i_curr_block = -1;
 
+                /* Initializes the i-node's mutex, for future locking */
+                pthread_mutex_init(&inode_table[inumber].i_lock, NULL);
+
                 /* the indirect block is also set to -1 */
                 inode_table[inumber].i_indir_block = -1;
                 inode_table[inumber].i_curr_indir = -1;                
             }
 
-            /* TODO: what do? this? */
-            pthread_mutex_unlock(&mutex);
-            pthread_mutex_destroy(&mutex);
-
             return inumber;
         }
     }
-
-    pthread_mutex_unlock(&mutex);
-    pthread_mutex_destroy(&mutex);
 
     return -1;
 }
@@ -199,6 +194,9 @@ int inode_delete(int inumber) {
             return -1;
         }
     }
+
+    /* Destroy the mutex associated with the inode */
+    pthread_mutex_destroy(&inode_table[inumber].i_lock);
 
     return 0;
 }
