@@ -7,17 +7,32 @@
 #include <unistd.h>
 #include <pthread.h>
 
+#define m_lock (pthread_mutex_lock)
+#define m_unlock (pthread_mutex_unlock)
+
+#define r_lock (pthread_rwlock_rdlock)
+#define w_lock (pthread_rwlock_wrlock)
+#define rw_unlock (pthread_rwlock_unlock)
+
 
 /* Persistent FS state (in reality, it should be maintained in secondary
  * memory; for simplicity, this project maintains it in primary memory) */
 
+/* Global read/write lock */
+pthread_rwlock_t rwlock;
+
 /* I-node table */
 static inode_t inode_table[INODE_TABLE_SIZE];
 static char freeinode_ts[INODE_TABLE_SIZE];
+/* I-node table lock */
+pthread_mutex_t inode_t_lock;
 
 /* Data blocks */
 static char fs_data[BLOCK_SIZE * DATA_BLOCKS];
 static char free_blocks[DATA_BLOCKS];
+/* Data blocks table lock */
+pthread_mutex_t data_t_lock;
+
 
 /* Volatile FS state */
 
@@ -67,6 +82,11 @@ static void insert_delay() {
  * Initializes FS state
  */
 void state_init() {
+    /* Initializes all the locks for later use */
+    pthread_rwlock_init(&rwlock, NULL);
+    pthread_mutex_init(&inode_t_lock, NULL);
+    pthread_mutex_init(&data_t_lock, NULL);
+
     for (size_t i = 0; i < INODE_TABLE_SIZE; i++) {
         freeinode_ts[i] = FREE;
     }
@@ -80,7 +100,8 @@ void state_init() {
     }
 }
 
-void state_destroy() { /* nothing to do */
+void state_destroy() {
+    /* nothing to do */
 }
 
 /*
@@ -92,7 +113,8 @@ void state_destroy() { /* nothing to do */
  */
 int inode_create(inode_type n_type) {
 
-    /* TODO: review lock initialization */
+    /* TODO: review lock usage */
+    m_lock(&inode_t_lock);
 
     for (int inumber = 0; inumber < INODE_TABLE_SIZE; inumber++) {
         if ((inumber * (int) sizeof(allocation_state_t) % BLOCK_SIZE) == 0) {
@@ -164,10 +186,12 @@ int inode_create(inode_type n_type) {
                 inode_table[inumber].i_curr_indir = -1;                
             }
 
+            m_unlock(&inode_t_lock);
             return inumber;
         }
     }
 
+    m_unlock(&inode_t_lock);
     return -1;
 }
 
@@ -186,7 +210,9 @@ int inode_delete(int inumber) {
         return -1;
     }
 
+    w_lock(&rwlock);
     freeinode_ts[inumber] = FREE;
+    rw_unlock(&rwlock);
 
     if (inode_table[inumber].i_size > 0) {
         /* Free all the data blocks associated with the inode */
@@ -194,9 +220,6 @@ int inode_delete(int inumber) {
             return -1;
         }
     }
-
-    /* Destroy the mutex associated with the inode */
-    pthread_mutex_destroy(&inode_table[inumber].i_lock);
 
     return 0;
 }

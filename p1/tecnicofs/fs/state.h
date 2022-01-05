@@ -38,8 +38,6 @@ typedef struct {
 
     /* TODO: review this */
     pthread_mutex_t i_lock;
-    pthread_rwlock_t i_rwlock;
-
 } inode_t;
 
 typedef enum { FREE = 0, TAKEN = 1 } allocation_state_t;
