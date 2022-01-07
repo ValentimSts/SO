@@ -36,7 +36,7 @@ typedef struct {
     int i_indir_block;
     int i_curr_indir;
 
-    /* TODO: review this */
+    /* I-node's lock */
     pthread_rwlock_t i_lock;
 } inode_t;
 
@@ -48,6 +48,9 @@ typedef enum { FREE = 0, TAKEN = 1 } allocation_state_t;
 typedef struct {
     int of_inumber;
     size_t of_offset;
+
+    /* TODO: maybe implement this? :thinking: */
+    pthread_rwlock_t of_lock;
 } open_file_entry_t;
 
 #define INDIR_BLOCK_SIZE (BLOCK_SIZE / sizeof(int))
@@ -72,5 +75,11 @@ int add_to_open_file_table(int inumber, size_t offset);
 int remove_from_open_file_table(int fhandle);
 open_file_entry_t *get_open_file_entry(int fhandle);
 int free_inode_blocks(int inumber);
+int inode_rdlock(int inumber);
+int inode_wrlock(int inumber);
+int inode_unlock(int inumber);
+int fs_rdlock();
+int fs_wrlock();
+int fs_unlock();
 
 #endif // STATE_H
