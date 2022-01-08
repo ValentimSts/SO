@@ -12,6 +12,7 @@ int tfs_init() {
     /* create root inode */
     int root = inode_create(T_DIRECTORY);
     if (root != ROOT_DIR_INUM) {
+        printf("root: %d joao\n", root);
         return -1;
     }
 
@@ -117,15 +118,15 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
         return -1;
     }
 
+    of_rdlock(fhandle);
+
     /* From the open file table entry, we get the inode */
     inode_t *inode = inode_get(file->of_inumber);
     if (inode == NULL) {
+        of_unlock(fhandle);
         return -1;
     }
 
-    /* TODO: review this */
-    fs_rdlock();
-    
     inode_rdlock(file->of_inumber);
 
     /* Finds the "true offset", since the offset is incremented the same
@@ -151,8 +152,10 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
     }
 
     inode_unlock(file->of_inumber);
+    of_unlock(fhandle);
 
     if (to_write > 0) {
+        of_rdlock(fhandle);
         inode_wrlock(file->of_inumber);
 
         if (inode->i_size == 0) {
@@ -162,6 +165,7 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
 
                 if (inode->i_data_blocks[i] == -1) {
                     inode_unlock(file->of_inumber);
+                    of_unlock(fhandle);
                     return -1;
                 }
             }
@@ -170,6 +174,8 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
              * on the first one, and so, i_curr_block is set to 0 */
             inode->i_curr_block = 0;
         }
+
+        of_unlock(fhandle);
 
         void *block = NULL;
 
@@ -182,7 +188,11 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
                 /* Allocates a new indirect data block */
                 inode->i_indir_block = data_block_alloc();
                 if (inode->i_indir_block == -1) {
+                    of_rdlock(fhandle);
+
                     inode_unlock(file->of_inumber);
+
+                    of_unlock(fhandle);
                     return -1;
                 }
 
@@ -191,7 +201,11 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
                 /* We get the indirect block */
                 int *temp = (int *)data_block_get(inode->i_indir_block);
                 if (temp == NULL) {
+                    of_rdlock(fhandle);
+
                     inode_unlock(file->of_inumber);
+
+                    of_unlock(fhandle);
                     return -1;
                 }
 
@@ -205,7 +219,11 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
             /* We get the indirect block */
             int *temp = (int *)data_block_get(inode->i_indir_block);
             if (temp == NULL) {
+                of_rdlock(fhandle);
+
                 inode_unlock(file->of_inumber);
+
+                of_unlock(fhandle);
                 return -1;
             }
 
@@ -214,7 +232,11 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
 
                 temp[inode->i_curr_indir] = data_block_alloc();
                 if (temp[inode->i_curr_indir] == -1) {
+                    of_rdlock(fhandle);
+
                     inode_unlock(file->of_inumber);
+
+                    of_unlock(fhandle);
                     return -1;
                 }
             }
@@ -243,12 +265,16 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
             
         }
 
+        of_rdlock(fhandle);
+
         if (block == NULL) {
             inode_unlock(file->of_inumber);
             return -1;
         }
 
         inode_unlock(file->of_inumber);
+
+        of_unlock(fhandle);
 
         /* Perform the actual write */
         memcpy(block + real_offset, buffer, to_write);
@@ -260,6 +286,7 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
                 inode->i_size, file->of_offset, write_scraps, real_offset, to_write, block_content);
         */
 
+        of_rdlock(fhandle);
         inode_wrlock(file->of_inumber);
 
         /* The offset  and i-node size associated with the file handle are
@@ -267,6 +294,7 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
         inode->i_size += to_write;
 
         inode_unlock(file->of_inumber);
+        of_unlock(fhandle);
         
         /* Normally we would increment the file offset aswell (file->of_offset += to_write),
          * since we wrote "to_write" bytes it would only make sense to increment the offset
@@ -300,9 +328,12 @@ ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
         return -1;
     }
 
+    of_rdlock(fhandle);
+
     /* From the open file table entry, we get the inode */
     inode_t *inode = inode_get(file->of_inumber);
     if (inode == NULL) {
+        of_unlock(fhandle);
         return -1;
     }
 
@@ -312,12 +343,14 @@ ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
     size_t to_read = inode->i_size - file->of_offset;
     
     inode_unlock(file->of_inumber);
+    of_unlock(fhandle);
 
     if (to_read > len) {
         to_read = len;
     }
 
     if (to_read > 0) {
+        of_rdlock(fhandle);
         inode_rdlock(file->of_inumber);
 
         /* Finds the block where the offset is, aswell as the "actual"
@@ -325,6 +358,8 @@ ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
          * logic) */
         size_t offset_block = file->of_offset / BLOCK_SIZE;
         size_t real_offset = file->of_offset - offset_block * BLOCK_SIZE;
+
+        of_unlock(fhandle);
 
         void *block = NULL;
 
@@ -339,11 +374,17 @@ ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
         }
 
         if (block == NULL) {
+            of_rdlock(fhandle);
+
             inode_unlock(file->of_inumber);
+
+            of_unlock(fhandle);
             return -1;
         }
 
+        of_rdlock(fhandle);
         inode_unlock(file->of_inumber);
+        of_unlock(fhandle);
 
         /* Perform the actual read */
         memcpy(buffer, block + real_offset, to_read);
@@ -358,7 +399,9 @@ ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
         printf("block content:\n%s\n----\n", block_content);
         */
 
+        of_wrlock(fhandle);
         file->of_offset += to_read;
+        of_unlock(fhandle);
     }
 
     return (ssize_t)to_read;

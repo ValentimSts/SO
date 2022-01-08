@@ -49,7 +49,7 @@ typedef struct {
     int of_inumber;
     size_t of_offset;
 
-    /* TODO: maybe implement this? :thinking: */
+    /* Open file */
     pthread_rwlock_t of_lock;
 } open_file_entry_t;
 
@@ -74,12 +74,17 @@ void *data_block_get(int block_number);
 int add_to_open_file_table(int inumber, size_t offset);
 int remove_from_open_file_table(int fhandle);
 open_file_entry_t *get_open_file_entry(int fhandle);
+
+/* New methods */
+
 int free_inode_blocks(int inumber);
+
 int inode_rdlock(int inumber);
 int inode_wrlock(int inumber);
 int inode_unlock(int inumber);
-int fs_rdlock();
-int fs_wrlock();
-int fs_unlock();
+
+int of_rdlock(int fhandle);
+int of_wrlock(int fhandle);
+int of_unlock(int fhandle);
 
 #endif // STATE_H
