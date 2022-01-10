@@ -3,8 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-/* TODO: review this */
-/* #include <pthread.h> */
+
 
 int tfs_init() {
     state_init();
@@ -42,7 +41,7 @@ int tfs_lookup(char const *name) {
 
 int tfs_open(char const *name, int flags) {
     int inum;
-    size_t offset;
+    size_t read_offset, write_offset;
 
     /* Checks if the path name is valid */
     if (!valid_pathname(name)) {
@@ -74,10 +73,14 @@ int tfs_open(char const *name, int flags) {
         /* Determine initial offset */
         if (flags & TFS_O_APPEND) {
             inode_rdlock(inum);
-            offset = inode->i_size;
+            /* offset = inode->i_size */
+            read_offset = inode->i_size;
+            write_offset = inode->i_size;
             inode_unlock(inum);
         } else {
-            offset = 0;
+
+            read_offset = 0;
+            write_offset = 0;
         }
     } else if (flags & TFS_O_CREAT) {
         /* The file doesn't exist; the flags specify that it should be created*/
@@ -91,14 +94,18 @@ int tfs_open(char const *name, int flags) {
             inode_delete(inum);
             return -1;
         }
-        offset = 0;
+
+        /* offset = 0 */
+        read_offset = 0;
+        write_offset = 0;
     } else {
         return -1;
     }
 
     /* Finally, add entry to the open file table and
      * return the corresponding handle */
-    return add_to_open_file_table(inum, offset);
+    /* return add_to_open_file_table(inum, offset); */
+    return add_to_open_file_table(inum, read_offset, write_offset);
 
     /* Note: for simplification, if file was created with TFS_O_CREAT and there
      * is an error adding an entry to the open file table, the file is not
@@ -127,14 +134,15 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
         return -1;
     }
 
-    inode_rdlock(file->of_inumber);
-
     /* Finds the "true offset", since the offset is incremented the same
      * way as the inode size (when it comes to tfs_write), the actual offset we
      * want is the offset of the current block we are in, and so we find
      * that value */
-    size_t number_of_blocks = inode->i_size / BLOCK_SIZE;
-    size_t real_offset = inode->i_size - number_of_blocks * BLOCK_SIZE;
+    /* file->of_write_offset tinha inode->i_size */
+    size_t number_of_blocks = file->of_write_offset / BLOCK_SIZE;
+    size_t real_offset = file->of_write_offset - number_of_blocks * BLOCK_SIZE;
+
+    inode_rdlock(file->of_inumber);
 
     /* Determine how many bytes to write */
     if (to_write + real_offset > BLOCK_SIZE) {
@@ -306,6 +314,9 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
          * operations to the same file. */
 
         /* file->of_offset += to_write; */
+        of_wrlock(fhandle);
+        file->of_write_offset += to_write;
+        of_unlock(fhandle);
 
         /* If write_scraps is greater than 0 it means we still have data to
          * write, and so we do a recursive call to finish writing the remaining
@@ -340,7 +351,7 @@ ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
     inode_rdlock(file->of_inumber);
 
     /* Determine how many bytes to read */
-    size_t to_read = inode->i_size - file->of_offset;
+    size_t to_read = inode->i_size - file->of_read_offset;
     
     inode_unlock(file->of_inumber);
     of_unlock(fhandle);
@@ -356,8 +367,8 @@ ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
         /* Finds the block where the offset is, aswell as the "actual"
          * offset for that same block. (similar to the tfs_write "real_offset"
          * logic) */
-        size_t offset_block = file->of_offset / BLOCK_SIZE;
-        size_t real_offset = file->of_offset - offset_block * BLOCK_SIZE;
+        size_t offset_block = file->of_read_offset / BLOCK_SIZE;
+        size_t real_offset = file->of_read_offset - offset_block * BLOCK_SIZE;
 
         of_unlock(fhandle);
 
@@ -400,7 +411,7 @@ ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
         */
 
         of_wrlock(fhandle);
-        file->of_offset += to_read;
+        file->of_read_offset += to_read;
         of_unlock(fhandle);
     }
 

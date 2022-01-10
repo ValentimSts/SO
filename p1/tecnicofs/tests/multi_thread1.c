@@ -17,27 +17,29 @@ void *test1(void *args) {
     r = tfs_write(f, str, strlen(str));
     assert(r == strlen(str));
 
+    r = tfs_write(f, str, strlen(str));
+
     assert(tfs_close(f) != -1);
 
     f = tfs_open("/f1", 0);
     assert(f != -1);
 
     r = tfs_read(f, buffer, sizeof(buffer) - 1);
-    assert(r == strlen(str));
+    printf("number of bytes read: %ld\n", r);
 
     assert(tfs_close(f) != -1);
 
     buffer[r] = '\0';
-    printf("%s\n", buffer);
+    printf("test1 buffer: %s\n", buffer);
 
     return NULL;
 }
 
 int main() {
 
-    char *str1 = "AAA!";
-    char *str2 = "BB!";
-    char *str3 = "C!";
+    char *str1 = "AAA";
+    char *str2 = "BB";
+    char *str3 = "C";
 
     pthread_t threads[3];
 
@@ -53,5 +55,5 @@ int main() {
 
     assert(tfs_destroy() != -1);
 
-    printf("Success!\n");
+    printf("Successful test.\n");
 }

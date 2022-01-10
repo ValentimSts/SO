@@ -8,11 +8,11 @@
 #include <pthread.h>
 
 
-/* Persistent FS state (in reality, it should be maintained in secondary
- * memory; for simplicity, this project maintains it in primary memory) */
-
 /* rwlock for protecting the state structures */
 static pthread_rwlock_t fs_rwlock;
+
+/* Persistent FS state (in reality, it should be maintained in secondary
+ * memory; for simplicity, this project maintains it in primary memory) */
 
 /* I-node table */
 static inode_t inode_table[INODE_TABLE_SIZE];
@@ -21,9 +21,6 @@ static char freeinode_ts[INODE_TABLE_SIZE];
 /* Data blocks */
 static char fs_data[BLOCK_SIZE * DATA_BLOCKS];
 static char free_blocks[DATA_BLOCKS];
-
-/* TODO: review this */
-/* static pthread_rwlock_t block_locks[DATA_BLOCKS]; */
 
 
 /* Volatile FS state */
@@ -448,7 +445,8 @@ void *data_block_get(int block_number) {
  * 	- Initial offset
  * Returns: file handle if successful, -1 otherwise
  */
-int add_to_open_file_table(int inumber, size_t offset) {
+/* int add_to_open_file_table(int inumber, size_t offset) */
+int add_to_open_file_table(int inumber, size_t read_offset, size_t write_offset) {
 	if (pthread_rwlock_wrlock(&fs_rwlock) != 0) {
         return -1;
     }
@@ -463,7 +461,8 @@ int add_to_open_file_table(int inumber, size_t offset) {
             }
 
             open_file_table[i].of_inumber = inumber;
-            open_file_table[i].of_offset = offset;
+            open_file_table[i].of_read_offset = read_offset;
+            open_file_table[i].of_write_offset = write_offset;
 
 	        if (pthread_rwlock_unlock(&fs_rwlock) != 0) {
                 return -1;
