@@ -6,34 +6,94 @@
 void *test1(void *args) {
 
     char buffer[40];
+    char file[4] = "/f1";
     int f;
     ssize_t r;
 
     char *str = (char *)args;
 
-    f = tfs_open("/f1", TFS_O_CREAT);
+    f = tfs_open(file, TFS_O_CREAT);
     assert(f != -1);
 
     r = tfs_write(f, str, strlen(str));
     assert(r == strlen(str));
 
-    r = tfs_write(f, str, strlen(str));
-
     assert(tfs_close(f) != -1);
 
-    f = tfs_open("/f1", 0);
+    f = tfs_open(file, 0);
     assert(f != -1);
 
     r = tfs_read(f, buffer, sizeof(buffer) - 1);
-    printf("bytes read: %ld\n", r);
 
     assert(tfs_close(f) != -1);
 
     buffer[r] = '\0';
-    printf("%s\n", buffer);
+    printf("test1: %s\n", buffer);
 
     return NULL;
 }
+
+void *test2(void *args) {
+
+    char buffer[40];
+    char file[4] = "/f2";
+    int f;
+    ssize_t r;
+
+    char *str = (char *)args;
+
+    f = tfs_open(file, TFS_O_CREAT);
+    assert(f != -1);
+
+    r = tfs_write(f, str, strlen(str));
+    assert(r == strlen(str));
+
+    assert(tfs_close(f) != -1);
+
+    f = tfs_open(file, 0);
+    assert(f != -1);
+
+    r = tfs_read(f, buffer, sizeof(buffer) - 1);
+
+    assert(tfs_close(f) != -1);
+
+    buffer[r] = '\0';
+    printf("test2: %s\n", buffer);
+
+    return NULL;
+}
+
+void *test3(void *args) {
+
+    char buffer[40];
+    char file[4] = "/f3";
+    int f;
+    ssize_t r;
+
+    char *str = (char *)args;
+
+    f = tfs_open(file, TFS_O_CREAT);
+    assert(f != -1);
+
+    r = tfs_write(f, str, strlen(str));
+    assert(r == strlen(str));
+
+    assert(tfs_close(f) != -1);
+
+    f = tfs_open(file, 0);
+    assert(f != -1);
+
+    r = tfs_read(f, buffer, sizeof(buffer) - 1);
+
+    assert(tfs_close(f) != -1);
+
+    buffer[r] = '\0';
+    printf("test3: %s\n", buffer);
+
+    return NULL;
+}
+
+/* Performs multiple writes on different files at the same time */
 
 int main() {
 
@@ -41,14 +101,26 @@ int main() {
     char *str2 = "BB";
     char *str3 = "C";
 
+    pthread_t threads[3];
 
     assert(tfs_init() != -1);
 
-    test1(str1);
-    test1(str2);
-    test1(str3);
+    assert(pthread_create(&threads[0], NULL, test1, str1) == 0);
+    assert(pthread_create(&threads[1], NULL, test2, str2) == 0);
+    assert(pthread_create(&threads[2], NULL, test3, str3) == 0);
+
+    assert(pthread_join(threads[0], NULL) == 0);
+    assert(pthread_join(threads[1], NULL) == 0);
+    assert(pthread_join(threads[2], NULL) == 0);
 
     assert(tfs_destroy() != -1);
+
+    /* Expected output:
+     * - a combination of the following:
+     *   test1: AAA
+     *   test2: BB
+     *   test3: C
+     */
 
     printf("Successful test.\n");
 }

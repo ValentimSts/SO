@@ -344,15 +344,32 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
                 inode->i_size, file->of_offset, write_scraps, real_offset, to_write, block_content);
         */
 
+        /* TODO: decide which offset to use: file->of_offset += to_write; */
+        if (of_wrlock(fhandle) == -1) {
+            return -1;
+        }
+        /* The offset  and i-node size associated with the file handle are
+         * incremented accordingly */
+        file->of_write_offset += to_write;
+
         if (inode_wrlock(inumber) == -1) {
             return -1;
         }
 
-        /* The offset  and i-node size associated with the file handle are
-         * incremented accordingly */
-        inode->i_size += to_write;
+        if (file->of_write_offset < inode->i_size) {
+            /* When our offset is lesser then the i-node size, it means we
+             * are overwriting the block's content, and so, the i-node size 
+             * will stay the same (nothing to do here) */
+        }
+        else {
+            inode->i_size = file->of_write_offset;
+        }
 
         if (inode_unlock(inumber) == -1) {
+            return -1;
+        }
+
+        if (of_unlock(fhandle) == -1) {
             return -1;
         }
         
@@ -364,17 +381,6 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
          * viable offset option that makes a "tfs_read" after a "tfs_write" (vice-versa)
          * possible aswell as offerring the possibility of simultaneous read and write
          * operations to the same file. */
-        
-        /* TODO: decide which offset to use: file->of_offset += to_write; */
-        if (of_wrlock(fhandle) == -1) {
-            return -1;
-        }
-
-        file->of_write_offset += to_write;
-
-        if (of_unlock(fhandle) == -1) {
-            return -1;
-        }
 
         /* If write_scraps is greater than 0 it means we still have data to
          * write, and so we do a recursive call to finish writing the remaining
@@ -537,6 +543,7 @@ int tfs_copy_to_external_fs(char const *source_path, char const *dest_path) {
         return -1;
     }
 
+    /* TODO: maybe inode->i_size - 1? */
     size_t size = inode->i_size;
 
     if (inode_unlock(inum) == -1) {
