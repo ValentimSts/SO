@@ -72,7 +72,7 @@ tests/copy_to_external_simple: tests/copy_to_external_simple.o fs/operations.o f
 tests/write_10_blocks_spill: tests/write_10_blocks_spill.o fs/operations.o fs/state.o
 tests/write_10_blocks_simple: tests/write_10_blocks_simple.o fs/operations.o fs/state.o
 tests/write_more_than_10_blocks_simple: tests/write_more_than_10_blocks_simple.o fs/operations.o fs/state.o
-# Multithread tests (remove comments for tests 1 and 2)
+# Multithread tests
 tests/multi_thread1: tests/multi_thread1.o fs/operations.o fs/state.o
 tests/multi_thread2: tests/multi_thread2.o fs/operations.o fs/state.o
 tests/multi_thread3: tests/multi_thread3.o fs/operations.o fs/state.o
