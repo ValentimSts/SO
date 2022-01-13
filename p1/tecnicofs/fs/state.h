@@ -47,7 +47,6 @@ typedef enum { FREE = 0, TAKEN = 1 } allocation_state_t;
  */
 typedef struct {
     int of_inumber;
-    /* TODO: check if this is legal */
     /* Offset for when the file is being read */
     size_t of_read_offset;
     /* Offset for when the file is being written on */
