@@ -5,13 +5,6 @@
 #include <string.h>
 
 
-/* methods that need i-node locking:
- * - data_block_get
- * - inode_get
- * - get_open_file_entry
- */
-
-
 int tfs_init() {
     state_init();
 
@@ -74,7 +67,7 @@ int tfs_open(char const *name, int flags) {
 
         /* Trucate (if requested) */
         if (flags & TFS_O_TRUNC) {
-            /* In thsi section we are very careful while locking the i-node,
+            /* In this section we are very careful while locking the i-node,
              * to avoid nested locks, since "free_inode_blocks" already locks the i-node */
             if (inode_rdlock(inum) == -1) {
                 return -1;
@@ -328,13 +321,6 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
         /* Perform the actual write */
         memcpy(block + real_offset, buffer, to_write);
 
-        /* Debugging */
-        /*
-        char *block_content = (char *)block;
-        printf("inode size: %ld\nfile offset: %ld\nwrite scraps: %ld\nreal offset: %ld\nbytes written: %ld\nblock content (write):\n%s\n----\n",
-                inode->i_size, file->of_offset, write_scraps, real_offset, to_write, block_content);
-        */
-
         if (of_wrlock(fhandle) == -1) {
             return -1;
         }
@@ -500,14 +486,6 @@ ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
 
         /* Perform the actual read */
         memcpy(buffer, block + real_offset, to_read);
-    
-        /* Debugging */
-        /*
-        char *buffer_content = (char *)buffer;
-        char *block_content = (char *)block;
-        printf("file offset: %ld\nreal offset: %ld\ndata read:\n%s\n-----\n",file->of_offset, real_offset, buffer_content);
-        printf("block content:\n%s\n----\n", block_content);
-        */
 
         if (of_wrlock(fhandle) == -1) {
             return -1;
@@ -558,7 +536,6 @@ int tfs_copy_to_external_fs(char const *source_path, char const *dest_path) {
         return -1;
     }
 
-    /* TODO: maybe inode->i_size - 1? */
     size_t size = inode->i_size;
 
     if (inode_unlock(inum) == -1) {

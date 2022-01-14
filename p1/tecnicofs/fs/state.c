@@ -8,13 +8,6 @@
 #include <pthread.h>
 
 
-/* protect calls to:
- * - data_block_get
- * - get_open_file_entry
- * - inode_get
- */
-
-
 /* Persistent FS state (in reality, it should be maintained in secondary
  * memory; for simplicity, this project maintains it in primary memory) */
 
@@ -529,7 +522,6 @@ void *data_block_get(int block_number) {
  * 	- Initial offset
  * Returns: file handle if successful, -1 otherwise
  */
-/* int add_to_open_file_table(int inumber, size_t offset) */
 int add_to_open_file_table(int inumber, size_t offset) {
 	if (pthread_rwlock_wrlock(&of_table_rwlock) != 0) {
         return -1;
