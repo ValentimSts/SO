@@ -114,7 +114,42 @@ void state_init() {
 }
 
 void state_destroy() {
-    /* nothing to do */
+    /* Destroys all the i-node's locks */
+    for (int inumber = 0; inumber < INODE_TABLE_SIZE; inumber++) {
+        if (freeinode_ts[inumber] == TAKEN) {
+            if (pthread_rwlock_destroy(&inode_table[inumber].i_lock) != 0) {
+                printf("state_destroy(): inode lock destruction failed\n");
+                return;
+            }
+        }
+    }
+
+    /* Destroys all the open file's locks */
+    for (int fhandle = 0; fhandle < MAX_OPEN_FILES; fhandle++) {
+        if (free_open_file_entries[fhandle] == TAKEN) {
+            if (pthread_rwlock_destroy(&open_file_table[fhandle].of_lock) != 0) {
+                printf("state_destroy(): open file lock destruction failed\n");
+                return;
+            }
+        }
+    }
+
+    /* Destroys the table's locks */
+
+    if (pthread_rwlock_destroy(&i_table_rwlock) != 0) {
+        printf("state_destroy(): i-node table lock destruction failed\n");
+        return;
+    }
+
+    if (pthread_rwlock_destroy(&data_block_rwlock) != 0) {
+        printf("state_destroy(): data block table lock destruction failed\n");
+        return;
+    }
+
+    if (pthread_rwlock_destroy(&of_table_rwlock) != 0) {
+        printf("state_destroy(): open file table lock destruction failed\n");
+        return;
+    }
 }
 
 /*
@@ -495,7 +530,7 @@ void *data_block_get(int block_number) {
  * Returns: file handle if successful, -1 otherwise
  */
 /* int add_to_open_file_table(int inumber, size_t offset) */
-int add_to_open_file_table(int inumber, size_t read_offset, size_t write_offset) {
+int add_to_open_file_table(int inumber, size_t offset) {
 	if (pthread_rwlock_wrlock(&of_table_rwlock) != 0) {
         return -1;
     }
@@ -519,10 +554,7 @@ int add_to_open_file_table(int inumber, size_t read_offset, size_t write_offset)
             }
 
             open_file_table[i].of_inumber = inumber;
-            
-            /* TODO: confirm the use of read and write offset */
-            open_file_table[i].of_read_offset = read_offset;
-            open_file_table[i].of_write_offset = write_offset;
+            open_file_table[i].of_offset = offset;
 
             if (of_unlock(i) == -1) {
                 return -1;

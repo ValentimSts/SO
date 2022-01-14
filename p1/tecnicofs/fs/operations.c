@@ -47,7 +47,7 @@ int tfs_lookup(char const *name) {
 
 int tfs_open(char const *name, int flags) {
     int inum;
-    size_t read_offset, write_offset;
+    size_t offset;
 
     /* Checks if the path name is valid */
     if (!valid_pathname(name)) {
@@ -106,17 +106,13 @@ int tfs_open(char const *name, int flags) {
                 return -1;
             }
 
-            /* TODO: decide which offset to use: offset = inode->i_size */
-            read_offset = inode->i_size;
-            write_offset = inode->i_size;
+            offset = inode->i_size;
 
             if (inode_unlock(inum) == -1) {
                 return -1;
             }
         } else {
-            /* offset = 0 */
-            read_offset = 0;
-            write_offset = 0;
+            offset = 0;
         }
     } else if (flags & TFS_O_CREAT) {
         /* The file doesn't exist; the flags specify that it should be created*/
@@ -131,17 +127,14 @@ int tfs_open(char const *name, int flags) {
             return -1;
         }
 
-        /* offset = 0 */
-        read_offset = 0;
-        write_offset = 0;
+        offset = 0;
     } else {
         return -1;
     }
 
     /* Finally, add entry to the open file table and
      * return the corresponding handle */
-    /* return add_to_open_file_table(inum, offset); */
-    return add_to_open_file_table(inum, read_offset, write_offset);
+    return add_to_open_file_table(inum, offset);
 
     /* Note: for simplification, if file was created with TFS_O_CREAT and there
      * is an error adding an entry to the open file table, the file is not
@@ -199,9 +192,8 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
      * way as the inode size (when it comes to tfs_write), the actual offset we
      * want is the offset of the current block we are in, and so we find
      * that value */
-    /* file->of_write_offset tinha inode->i_size */
-    size_t number_of_blocks = file->of_write_offset / BLOCK_SIZE;
-    size_t real_offset = file->of_write_offset - number_of_blocks * BLOCK_SIZE;
+    size_t number_of_blocks = file->of_offset / BLOCK_SIZE;
+    size_t real_offset = file->of_offset - number_of_blocks * BLOCK_SIZE;
 
     if (of_unlock(fhandle) == -1) {
         return -1;
@@ -237,20 +229,8 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
             return -1;
         }
 
-        /* TODO: check block initialization */
         if (inode->i_size == 0) {
-            /* If empty file, allocate new blocks */
-            for (size_t i = 0; i < MAX_FILE_BLOCKS; i++) {
-                inode->i_data_blocks[i] = data_block_alloc();
-
-                if (inode->i_data_blocks[i] == -1) {
-                    inode_unlock(inumber);
-                    return -1;
-                }
-            }
-
-            /* After allocating all the blocks we must start writing stuff
-             * on the first one, and so, i_curr_block is set to 0 */
+            /* If empty file, i_curr_block is set to 0 */
             inode->i_curr_block = 0;
         }
 
@@ -315,7 +295,18 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
             }
 
         }
-        else {  
+        else {
+            /* We still have direct referenced blocks to use */
+            if (inode->i_data_blocks[inode->i_curr_block] == -1) {
+                /* If the current data block is set to -1 we have to 
+                 * allocate it */
+                inode->i_data_blocks[inode->i_curr_block] = data_block_alloc();
+                if (inode->i_data_blocks[inode->i_curr_block] == -1) {
+                    inode_unlock(inumber);
+                    return -1;
+                }
+            }
+
             block = data_block_get(inode->i_data_blocks[inode->i_curr_block]);
 
             /* Just like we did with the indirect block curr variable, we do the
@@ -344,25 +335,24 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
                 inode->i_size, file->of_offset, write_scraps, real_offset, to_write, block_content);
         */
 
-        /* TODO: decide which offset to use: file->of_offset += to_write; */
         if (of_wrlock(fhandle) == -1) {
             return -1;
         }
         /* The offset  and i-node size associated with the file handle are
          * incremented accordingly */
-        file->of_write_offset += to_write;
+        file->of_offset += to_write;
 
         if (inode_wrlock(inumber) == -1) {
             return -1;
         }
 
-        if (file->of_write_offset < inode->i_size) {
-            /* When our offset is lesser then the i-node size, it means we
+        if (file->of_offset < inode->i_size) {
+            /* When our offset is lesser than the i-node size, it means we
              * are overwriting the block's content, and so, the i-node size 
              * will stay the same (nothing to do here) */
         }
         else {
-            inode->i_size = file->of_write_offset;
+            inode->i_size = file->of_offset;
         }
 
         if (inode_unlock(inumber) == -1) {
@@ -372,15 +362,6 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
         if (of_unlock(fhandle) == -1) {
             return -1;
         }
-        
-        /* Normally we would increment the file offset aswell (file->of_offset += to_write),
-         * since we wrote "to_write" bytes it would only make sense to increment the offset
-         * with those same bytes, yet, since for "tfs_write" our only concern with an offset
-         * is the offset of the current block we're in (real_offset), that we can find using
-         * only the inode size, we choose not to increment file->offset in return for a more 
-         * viable offset option that makes a "tfs_read" after a "tfs_write" (vice-versa)
-         * possible aswell as offerring the possibility of simultaneous read and write
-         * operations to the same file. */
 
         /* If write_scraps is greater than 0 it means we still have data to
          * write, and so we do a recursive call to finish writing the remaining
@@ -398,6 +379,10 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
 
 
 ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
+    /* Size of the remaining characters to read, in case what we
+     * want to read is bigger than the block size */
+    size_t read_scraps = 0;
+
     /* Protect the "get_open_file_entry" funtion call */
     if (of_rdlock(fhandle) == -1) {
         return -1;
@@ -432,7 +417,7 @@ ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
     }
 
     /* Determine how many bytes to read */
-    size_t to_read = inode->i_size - file->of_read_offset;
+    size_t to_read = inode->i_size - file->of_offset;
     
     if (of_unlock(fhandle) == -1) {
         return -1;
@@ -442,27 +427,47 @@ ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
         return -1;
     }
 
-    /* TODO: check if we need recursiveness with the "to_read" variable,
-     *       like with "to_write" on "tfs_write" */
     if (to_read > len) {
         to_read = len;
     }
 
+    if (of_rdlock(fhandle) == -1) {
+        return -1;
+    }
+
+    /* Finds the block where the offset is, aswell as the "actual"
+     * offset for that same block. (similar to the tfs_write "real_offset"
+     * logic) */
+    size_t offset_block = file->of_offset / BLOCK_SIZE;
+    size_t real_offset = file->of_offset - offset_block * BLOCK_SIZE;
+
+    if (of_unlock(fhandle) == -1) {
+        return -1;
+    }
+
+    /* Determine how many bytes to read */
+    if (to_read + real_offset > BLOCK_SIZE) {
+        size_t temp = to_read;
+        to_read = BLOCK_SIZE - real_offset;
+
+        if (inode_rdlock(inumber) == -1) {
+            return -1;
+        }
+
+        /* If there are still indirect blocks available it means that
+         * there is atleast one data block available, whether that block is a 
+         * direct one or not, it doesn't matter to us now. (For some reason we have
+         * to make a cast to int for the "if" to work) */
+        if ((int) inode->i_curr_indir < (int) (INDIR_BLOCK_SIZE - 1)) {
+            read_scraps = temp - to_read;
+        }
+
+        if (inode_unlock(inumber) == -1) {
+            return -1;
+        }
+    }
+
     if (to_read > 0) {
-        if (of_rdlock(fhandle) == -1) {
-            return -1;
-        }
-
-        /* Finds the block where the offset is, aswell as the "actual"
-         * offset for that same block. (similar to the tfs_write "real_offset"
-         * logic) */
-        size_t offset_block = file->of_read_offset / BLOCK_SIZE;
-        size_t real_offset = file->of_read_offset - offset_block * BLOCK_SIZE;
-
-        if (of_unlock(fhandle) == -1) {
-            return -1;
-        }
-
         void *block = NULL;
 
         /* Protect the "data_block_get" function calls aswell as i-node reads */
@@ -510,12 +515,22 @@ ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
 
         /* The offset associated with the file handle is
          * incremented accordingly */
-        file->of_read_offset += to_read;
+        file->of_offset += to_read;
 
         if (of_unlock(fhandle) == -1) {
             return -1;
         }
+
+        /* If read_scraps is greater than 0 it means we still have data to
+         * read, and so we do a recursive call to finish reading the remaining
+         * data */
+        if (read_scraps > 0) {
+            tfs_read(fhandle, buffer + to_read, read_scraps);
+        }
     }
+
+    /* We return the true ammount of data we read from the file */
+    to_read += read_scraps;
 
     return (ssize_t)to_read;
 }

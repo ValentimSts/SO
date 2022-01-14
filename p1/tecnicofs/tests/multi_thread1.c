@@ -9,45 +9,47 @@ void *test1(void *args) {
     int f;
     ssize_t r;
 
-    char *str = (char *)args;
+    char *file = (char *)args;
 
-    f = tfs_open("/f1", TFS_O_CREAT);
-    assert(f != -1);
-
-    r = tfs_write(f, str, strlen(str));
-    assert(r == strlen(str));
-
-    r = tfs_write(f, str, strlen(str));
-
-    assert(tfs_close(f) != -1);
-
-    f = tfs_open("/f1", 0);
+    f = tfs_open(file, TFS_O_CREAT);
     assert(f != -1);
 
     r = tfs_read(f, buffer, sizeof(buffer) - 1);
-    printf("number of bytes read: %ld\n", r);
 
     assert(tfs_close(f) != -1);
 
     buffer[r] = '\0';
-    printf("test1 buffer: %s\n", buffer);
+    printf("number of bytes read: %ld\n", r);
+    printf("buffer: %s\n", buffer);
 
     return NULL;
 }
 
+/* reads the same file with multiple threads at the same time */
+
 int main() {
 
-    char *str1 = "AAA";
-    char *str2 = "BB";
-    char *str3 = "C";
+    int f;
+    ssize_t r;
+    char file[4] = "/f1";
+    char *str = "JIQIJIQIJIQIJWHOSAYSIMGUEIQIJIQIQJIQJQIQJIQ ";
 
     pthread_t threads[3];
 
     assert(tfs_init() != -1);
 
-    assert(pthread_create(&threads[0], NULL, test1, str1) == 0);
-    assert(pthread_create(&threads[1], NULL, test1, str2) == 0);
-    assert(pthread_create(&threads[2], NULL, test1, str3) == 0);
+    /* Creates a file */
+    f = tfs_open(file, TFS_O_CREAT);
+    assert(f != -1);
+
+    r = tfs_write(f, str, strlen(str));
+    assert(r == strlen(str));
+
+    assert(tfs_close(f) != -1);
+
+    assert(pthread_create(&threads[0], NULL, test1, file) == 0);
+    assert(pthread_create(&threads[1], NULL, test1, file) == 0);
+    assert(pthread_create(&threads[2], NULL, test1, file) == 0);
 
     assert(pthread_join(threads[0], NULL) == 0);
     assert(pthread_join(threads[1], NULL) == 0);
