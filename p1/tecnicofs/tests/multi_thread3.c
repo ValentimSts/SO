@@ -18,7 +18,7 @@ int main() {
     int f;
     ssize_t r; 
     char file[4] = "/f1";
-    char *str = "VALENTIMVALENTIMUAREGUEVALENTIMEBAELNETIM";
+    char *str = "JV Third MultiThread test: concurent tfs_copy_to_external_fs() calls";
 
     char *dest_path1 = "newFile1";
     char *dest_path2 = "newFile2";

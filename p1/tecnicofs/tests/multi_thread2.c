@@ -98,8 +98,8 @@ void *test3(void *args) {
 int main() {
 
     char *str1 = "AAA";
-    char *str2 = "BB";
-    char *str3 = "C";
+    char *str2 = "BBB";
+    char *str3 = "CCC";
 
     pthread_t threads[3];
 
@@ -118,8 +118,8 @@ int main() {
     /* Expected output:
      * - a combination of the following:
      *   test1: AAA
-     *   test2: BB
-     *   test3: C
+     *   test2: BBB
+     *   test3: CCC
      */
 
     printf("Successful test.\n");

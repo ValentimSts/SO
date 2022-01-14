@@ -3,9 +3,11 @@
 #include <string.h>
 #include <pthread.h>
 
+static pthread_mutex_t lock;
+
 void *test1(void *args) {
 
-    char buffer[40];
+    char buffer[50];
     int f;
     ssize_t r;
 
@@ -18,9 +20,14 @@ void *test1(void *args) {
 
     assert(tfs_close(f) != -1);
 
+    /* Protects the prints just so the output is clearer */
+    pthread_mutex_lock(&lock);
+
     buffer[r] = '\0';
     printf("number of bytes read: %ld\n", r);
     printf("buffer: %s\n", buffer);
+
+    pthread_mutex_unlock(&lock);
 
     return NULL;
 }
@@ -32,9 +39,11 @@ int main() {
     int f;
     ssize_t r;
     char file[4] = "/f1";
-    char *str = "JIQIJIQIJIQIJWHOSAYSIMGUEIQIJIQIQJIQJQIQJIQ ";
+    char *str = "JV First MultiThread test: concurrent reads";
 
     pthread_t threads[3];
+
+    assert(pthread_mutex_init(&lock, NULL) == 0);
 
     assert(tfs_init() != -1);
 
