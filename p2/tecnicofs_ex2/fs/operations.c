@@ -57,12 +57,11 @@ int tfs_destroy_after_all_closed() {
         return -1;
     }
 
+    destroy_wait_flag = 1;
+
     while (of_counter > 0) {
         pthread_cond_wait(&of_cond, &single_global_lock);
     }
-
-    /* TODO: check if we need mutex here or not */
-    destroy_wait_flag = 1;
 
     if (pthread_mutex_unlock(&single_global_lock) != 0) {
         return -1;
