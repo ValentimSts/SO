@@ -7,11 +7,29 @@
 
 static pthread_mutex_t single_global_lock;
 
+/* conditional variable used on "tfs_destroy_after_all_closed()" */
+static pthread_cond_t of_cond;
+
+/* Counter used to keep track of how many files are open */
+static size_t of_counter;
+
+/* Flag used to know when we're waiting for the system to
+ * shut down */
+static size_t destroy_wait_flag;
+
 int tfs_init() {
     state_init();
 
-    if (pthread_mutex_init(&single_global_lock, 0) != 0)
+    if (pthread_mutex_init(&single_global_lock, 0) != 0) {
         return -1;
+    }
+
+    /* The open file counter starts at 0 as we have
+     * no open fils in the system */
+    of_counter = 0;
+
+    /* Flag initialized at 0 meaning it is false */
+    destroy_wait_flag = 0;
 
     /* create root inode */
     int root = inode_create(T_DIRECTORY);
@@ -35,7 +53,22 @@ static bool valid_pathname(char const *name) {
 }
 
 int tfs_destroy_after_all_closed() {
-    /* TO DO: implement this */
+    if (pthread_mutex_lock(&single_global_lock) != 0) {
+        return -1;
+    }
+
+    while (of_counter > 0) {
+        pthread_cond_wait(&of_cond, &single_global_lock);
+    }
+
+    /* TODO: check if we need mutex here or not */
+    destroy_wait_flag = 1;
+
+    if (pthread_mutex_unlock(&single_global_lock) != 0) {
+        return -1;
+    }
+
+    tfs_destroy();
     return 0;
 }
 
@@ -115,7 +148,19 @@ static int _tfs_open_unsynchronized(char const *name, int flags) {
 int tfs_open(char const *name, int flags) {
     if (pthread_mutex_lock(&single_global_lock) != 0)
         return -1;
+
+    /* If we are waiting for the system to shutdown, we won't
+     * allow any more "tfs_open()" calls */
+    if (destroy_wait_flag == 1) {
+        return -1;
+    }
+
     int ret = _tfs_open_unsynchronized(name, flags);
+
+    /* Increments the open file counter as we have opened
+     * a new file */
+    of_counter++;
+
     if (pthread_mutex_unlock(&single_global_lock) != 0)
         return -1;
 
@@ -125,7 +170,19 @@ int tfs_open(char const *name, int flags) {
 int tfs_close(int fhandle) {
     if (pthread_mutex_lock(&single_global_lock) != 0)
         return -1;
+
     int r = remove_from_open_file_table(fhandle);
+
+    /* Decrements the open file counter as we have closed
+     * a file */
+    of_counter--;
+
+    /* If there are no more open files, we then signal our
+     * cond variable */
+    if (of_counter == 0) {
+        pthread_cond_signal(&of_cond);
+    }
+
     if (pthread_mutex_unlock(&single_global_lock) != 0)
         return -1;
 
