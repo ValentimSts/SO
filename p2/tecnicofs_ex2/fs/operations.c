@@ -24,8 +24,12 @@ int tfs_init() {
         return -1;
     }
 
+    if (pthread_cond_init(&of_cond, NULL) != 0) {
+        return -1;
+    }
+
     /* The open file counter starts at 0 as we have
-     * no open fils in the system */
+     * no open files in the system */
     of_counter = 0;
 
     /* Flag initialized at 0 meaning it is false */
@@ -42,6 +46,10 @@ int tfs_init() {
 
 int tfs_destroy() {
     state_destroy();
+    if (pthread_cond_destroy(&of_cond) != 0) {
+        return -1;
+    }
+
     if (pthread_mutex_destroy(&single_global_lock) != 0) {
         return -1;
     }
@@ -60,7 +68,9 @@ int tfs_destroy_after_all_closed() {
     destroy_wait_flag = 1;
 
     while (of_counter > 0) {
-        pthread_cond_wait(&of_cond, &single_global_lock);
+        if (pthread_cond_wait(&of_cond, &single_global_lock) != 0) {
+            return -1;
+        }
     }
 
     if (pthread_mutex_unlock(&single_global_lock) != 0) {
@@ -155,6 +165,9 @@ int tfs_open(char const *name, int flags) {
     }
 
     int ret = _tfs_open_unsynchronized(name, flags);
+    if (ret == -1) {
+        return -1;
+    }
 
     /* Increments the open file counter as we have opened
      * a new file */
@@ -171,6 +184,9 @@ int tfs_close(int fhandle) {
         return -1;
 
     int r = remove_from_open_file_table(fhandle);
+    if (r == -1) {
+        return -1;
+    }
 
     /* Decrements the open file counter as we have closed
      * a file */
