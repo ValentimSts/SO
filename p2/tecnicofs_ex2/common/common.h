@@ -1,6 +1,23 @@
 #ifndef COMMON_H
 #define COMMON_H
 
+/* Maximum number of sessions to the server */
+#define MAX_SERVER_SESSIONS (1)
+
+/* Maximum length of the client path name
+ * Size 41 to account for the '/0' at the end */
+#define MAX_CPATH_LEN (41)
+
+/* Struct used to represent the client's requests to the
+ * server. */
+typedef struct {
+    /* OP_CODE of the operation. */
+    int opcode;
+    /* Client path name. */
+    char c_path_name[MAX_CPATH_LEN];
+} c_request;
+
+
 /* tfs_open flags */
 enum {
     TFS_O_CREAT = 0b001,
