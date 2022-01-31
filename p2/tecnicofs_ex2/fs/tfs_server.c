@@ -277,6 +277,10 @@ int main(int argc, char **argv) {
             return -1;
         }
 
+        // while para fazer read ate ler tudo, verificar se open/read retorna 0, fazer close() e open() do server.
+        // while ate open funcionar, errno == EINT
+        // shutdown -> exit(0)
+
         /* TODO: buffer size wrong */
         if (read(server_fd, request_buffer, MAX_CPATH_LEN) == -1) {
             close(server_fd);
