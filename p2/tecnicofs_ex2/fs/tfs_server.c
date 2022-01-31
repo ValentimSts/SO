@@ -8,17 +8,14 @@
 
 /* Session ID table */
 static client_session_t session_id_table[MAX_SERVER_SESSIONS];
-static int free_session_table[MAX_SERVER_SESSIONS];
-
+static char free_session_table[MAX_SERVER_SESSIONS];
 
 /* Counter used to keep track of how many active sessions the server is handling */
 static int active_session_counter;
 
-
 /* Cond variable used to control the number of requests taken in 
  * by the server */
 static pthread_cond_t request_cond;
-/* TODO: mutex or rwlock? */
 static pthread_mutex_t server_mutex;
 
 
@@ -27,35 +24,33 @@ static inline bool valid_session_id(int session_id) {
 }
 
 
-/* 
+/*
  * Initilizes the server's table and pipe
  */
 void tfs_server_init(char const *server_pipe_path) {
     if (pthread_cond_init(&request_cond, NULL) != 0) {
-        printf("tfs_server_init(): pthread_cond initialization failed.\n");
-        /* TODO: return or exit(1)? */
-        return;
+        perror("[ERR]: ");
+        exit(1);
     }
 
     if (pthread_mutex_init(&server_mutex, NULL) != 0) {
-        printf("tfs_server_init(): pthread_mutex initialization failed.\n");
         pthread_cond_destroy(&request_cond);
-        return;
+        perror("[ERR]: ");
+        exit(1);
     }
 
     if (mkfifo(server_pipe_path, 0777) != 0) {
-        printf("tfs_server_init(): server's pipe initialization failed.\n");
         pthread_cond_destroy(&request_cond);
         pthread_mutex_destroy(&server_mutex);
-        return;
+        perror("[ERR]: ");
+        exit(1);
     }
 
     /* In the beggining there are no active server sessions */
     active_session_counter = 0;
 
     for (size_t i = 0; i < MAX_SERVER_SESSIONS; i++) {
-        /* An entry with -1 means the entry is free */
-        free_session_table[i] = -1;
+        free_session_table[i] = FREE;
     }
 }
 
@@ -65,25 +60,25 @@ void tfs_server_init(char const *server_pipe_path) {
  */
 void tfs_server_destroy(int server_fd) {
     if (pthread_cond_destroy(&request_cond) != 0) {
-        printf("tfs_server_destroy(): pthread_cond destruction failed.\n");
-        return;
+        perror("[ERR]: ");
+        exit(1);
     }
 
     if (pthread_mutex_destroy(&server_mutex) != 0) {
-        printf("tfs_server_destroy(): pthread_mutex destruction failed.\n");
-        return;
+        perror("[ERR]: ");
+        exit(1);
     }
 
     for (size_t i = 0; i < MAX_SERVER_SESSIONS; i++) {
-        /* TODO: check return value? */
         if (close(session_id_table[i]) != 0) {
-            printf("tfs_server_destroy(): client %ld's session closing failed.\n", i);
-            return;
+            perror("[ERR]: ");
+            exit(1);
         }
     }
+
     if (close(server_fd) != 0) {
-        printf("tfs_server_destroy(): server's session closing failed.\n");
-        return;
+        perror("[ERR]: ");
+        exit(1);
     }
 }
 
@@ -98,7 +93,10 @@ int session_id_alloc() {
     }
 
     for (size_t i = 0; i < MAX_SERVER_SESSIONS; i++) {
-        if (free_session_table[i] == -1) {
+        if (free_session_table[i] == FREE) {
+            
+            free_session_table[i] = TAKEN;
+
             if (pthread_mutex_unlock(&server_mutex) != 0) {
                 return -1;
             }
@@ -125,7 +123,7 @@ int session_id_remove(int session_id) {
         return -1;
     }
 
-    free_session_table[session_id] = -1;
+    free_session_table[session_id] = FREE;
 
     if (pthread_mutex_unlock(&server_mutex) != 0) {
         return -1;
@@ -174,15 +172,11 @@ int tfs_server_mount(char const *client_pipe_path) {
         return -1;
     }
 
-    if (close(client_fd) != 0) {
-        return -1;
-    }
-
     if (pthread_mutex_lock(&server_mutex) != 0) {
         return -1;
     }
 
-    /* Fills the structs's fields with thw client's information */
+    /* Fills the structs's fields with the client's information */
     strcpy(session_id_table[session_id].path_name, client_pipe_path);
     session_id_table[session_id].client_fd = client_fd;
 
@@ -275,14 +269,16 @@ int main(int argc, char **argv) {
     /* The server will run indefinitely, waiting for requests from the clients */
     while(1) {
         /* Buffer that stores request's fields (OP_CODE and client_pipe_path name) */
-        char request_buffer[MAX_REQUEST_SIZE];
+        /* TODO: buffer size wrong */
+        char request_buffer[MAX_CPATH_LEN];
 
         server_fd = open(pipename, O_RDONLY);
         if (server_fd == -1) {
             return -1;
         }
 
-        if (read(server_fd, request_buffer, MAX_REQUEST_SIZE) == -1) {
+        /* TODO: buffer size wrong */
+        if (read(server_fd, request_buffer, MAX_CPATH_LEN) == -1) {
             close(server_fd);
             return -1;
         }

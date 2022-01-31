@@ -4,15 +4,17 @@
 /* Maximum number of sessions to the server */
 #define MAX_SERVER_SESSIONS (1)
 
-/* Maximum size of the request buffer 
- * The first index contains the OP_CODE and the rest of the buffer
- * stores the rest of the information needed for the operation */
-#define MAX_REQUEST_SIZE (41)
+/* Maximum size of the client's pipe path name */
+#define MAX_CPATH_LEN (40)
 
+/* Size the op_code takes in the buffer */
+#define OP_CODE_SIZE (sizeof(char))
+
+typedef enum { FREE = 0, TAKEN = 1 } allocation_state_t;
 
 typedef struct {
     /* Client pipe path's name */
-    char path_name[MAX_REQUEST_SIZE];
+    char path_name[MAX_CPATH_LEN];
 
     /* Clients pipe file descriptor */
     int client_fd;
