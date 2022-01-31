@@ -10,9 +10,9 @@
 static int client_fd;
 static int server_fd;
 
-/* Stores the current client session fd. Returned by the server after
+/* Stores the current client session id. Returned by the server after
  * each successfull command */
-static int curr_session_fd;
+static int curr_session_id;
 
 
 int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
@@ -62,7 +62,7 @@ int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
         return -1;
     }
 
-    if (read(client_fd, &curr_session_fd, sizeof(int)) != 0) {
+    if (read(client_fd, &curr_session_id, sizeof(int)) != 0) {
         close(server_fd);
         close(client_fd);
         unlink(client_pipe_path);
@@ -82,8 +82,7 @@ int tfs_unmount() {
 
     buffer[0] = (char) TFS_OP_CODE_UNMOUNT;
     /* Stores the current client's session id in the buffer */
-    int *session_id = (int*)(&buffer[OP_CODE_SIZE]);
-    *session_id = curr_session_fd;
+    memcpy(buffer + OP_CODE_SIZE, &curr_session_id, sizeof(int));
 
     if (write(server_fd, buffer, buffer_size) != 0) {
         close(server_fd);
