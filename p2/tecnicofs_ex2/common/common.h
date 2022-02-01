@@ -1,16 +1,18 @@
 #ifndef COMMON_H
 #define COMMON_H
 
-/* Maximum number of sessions to the server */
-#define MAX_SERVER_SESSIONS (1)
-
 /* Maximum size of the client's pipe path name */
 #define MAX_CPATH_LEN (40)
 
 /* Size the op_code takes in the buffer */
 #define OP_CODE_SIZE (sizeof(char))
 
-typedef enum { FREE = 0, TAKEN = 1 } allocation_state_t;
+/* TODO: check where to put the defines/structs here or "config.h" */
+
+/* Maximum number of sessions to the server */
+#define MAX_SERVER_SESSIONS (1)
+
+#define MAX_REQUEST_SIZE (OP_CODE_SIZE + 2*sizeof(int) + sizeof(size_t) /* + size maximo de um ficheiro (bloco) */)
 
 typedef struct {
     /* Client pipe path's name */

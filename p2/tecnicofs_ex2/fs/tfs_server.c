@@ -4,6 +4,7 @@
 #include <fcntl.h>
 #include <pthread.h>
 #include <stdbool.h>
+#include <errno.h>
 
 
 /* Session ID table */
@@ -23,6 +24,49 @@ static inline bool valid_session_id(int session_id) {
     return session_id >= 0 && session_id < MAX_SERVER_SESSIONS;
 }
 
+
+/* 
+ * Makes sure "write()" actually writes all the bytes the user requested
+ * Inputs:
+ *  - file descriptor to write to
+ *  - source of the content to write
+ *  - size of the content
+ * 
+ * Returns: 0 if successful, -1 otherwise
+ */
+int write_until_success(int fd, char const *source, size_t size) {
+    int offset = 0, wr;
+    while ((wr = write(fd, source + offset, size)) != size && errno != EINTR) {
+        if (wr == -1) {
+            return -1;
+        }
+        /* Updates the current offset */
+        offset += wr;
+    }
+    return 0;
+}
+
+
+/* 
+ * Makes sure "read()" actually reads all the bytes the user requested
+ * Inputs:
+ *  - file descriptor to read from
+ *  - destination of the content read
+ *  - size of the content
+ * 
+ * Returns: 0 if successful, -1 otherwise
+ */
+int read_until_success(int fd, char *destination, size_t size) {
+    int offset = 0, rd;
+    while ((rd = read(fd, destination + offset, size)) != size && errno != EINTR) {
+        if (rd == -1) {
+            return -1;
+        }
+        /* Updates the current offset */
+        offset += rd;
+    }
+    return 0;
+}
 
 /*
  * Initilizes the server's table and pipe
@@ -140,6 +184,8 @@ int session_id_remove(int session_id) {
  * Returns: 0 if successful, -1 otherwise
  */
 int tfs_server_mount(char const *client_pipe_path) {
+    /* TODO: fields as argument? */
+
     int session_id = session_id_alloc();
 
     if (pthread_mutex_lock(&server_mutex) != 0) {
@@ -161,13 +207,14 @@ int tfs_server_mount(char const *client_pipe_path) {
         return -1;
     }
 
+    /* Opens the client's pipe for evry future witing */
     int client_fd = open(client_pipe_path, O_WRONLY);
     if (client_fd == -1) {
         return -1;
     }
 
     /* Writes to the client's pipe its session id */
-    if (write(client_fd, session_id, sizeof(int)) != 0) {
+    if (write_until_success(client_fd, session_id, sizeof(int)) != 0) {
         close(client_fd);
         return -1;
     }
@@ -263,26 +310,24 @@ int main(int argc, char **argv) {
     /* Initialize the server */
     server_init(pipename);
 
-    /* Server's file descriptor */
     int server_fd;
+
+    /* Opens the server's pipe for every future reading */
+    server_fd = open(pipename, O_RDONLY);
+    if (server_fd == -1) {
+        return -1;
+    }
 
     /* The server will run indefinitely, waiting for requests from the clients */
     while(1) {
-        /* Buffer that stores request's fields (OP_CODE and client_pipe_path name) */
-        /* TODO: buffer size wrong */
-        char request_buffer[MAX_CPATH_LEN];
-
-        server_fd = open(pipename, O_RDONLY);
-        if (server_fd == -1) {
-            return -1;
-        }
+        /* Buffer that stores request's fields (OP_CODE + rest of the fields) */
+        char request_buffer[MAX_REQUEST_SIZE];
 
         // while para fazer read ate ler tudo, verificar se open/read retorna 0, fazer close() e open() do server.
         // while ate open funcionar, errno == EINT
         // shutdown -> exit(0)
 
-        /* TODO: buffer size wrong */
-        if (read(server_fd, request_buffer, MAX_CPATH_LEN) == -1) {
+        if (read_until_success(server_fd, request_buffer, MAX_REQUEST_SIZE) != 0) {
             close(server_fd);
             return -1;
         }
@@ -291,10 +336,25 @@ int main(int argc, char **argv) {
 
         switch(op_code) {
             case 1:
-                server_mount(request_buffer + 1);
+                tfs_server_mount(request_buffer + 1);
             
             case 2:
+                tfs_server_unmount(request_buffer);
+            
+            case 3:
+                tfs_server_open();
 
+            case 4:
+                tfs_server_close();
+
+            case 5:
+                tfs_server_write();
+
+            case 6:
+                tfs_server_read();
+
+            case 7:
+                tfs_server_shutdown();
         }
 
     }

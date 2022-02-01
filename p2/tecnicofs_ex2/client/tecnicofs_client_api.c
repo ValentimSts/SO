@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <fcntl.h>
+#include <errno.h>
 
 
 /* Global variables used to store both the server and clients's file descriptors */
@@ -15,14 +16,57 @@ static int server_fd;
 static int curr_session_id;
 
 
+/* 
+ * Makes sure "write()" actually writes all the bytes the user requested
+ * Inputs:
+ *  - file descriptor to write to
+ *  - source of the content to write
+ *  - size of the content
+ * 
+ * Returns: 0 if successful, -1 otherwise
+ */
+int write_until_success(int fd, char const *source, size_t size) {
+    int offset = 0, wr;
+    while ((wr = write(fd, source + offset, size)) != size && errno != EINTR) {
+        if (wr == -1) {
+            return -1;
+        }
+        /* Updates the current offset */
+        offset += wr;
+    }
+    return 0;
+}
+
+
+/* 
+ * Makes sure "read()" actually reads all the bytes the user requested
+ * Inputs:
+ *  - file descriptor to read from
+ *  - destination of the content read
+ *  - size of the content
+ * 
+ * Returns: 0 if successful, -1 otherwise
+ */
+int read_until_success(int fd, char *destination, size_t size) {
+    int offset = 0, rd;
+    while ((rd = read(fd, destination + offset, size)) != size && errno != EINTR) {
+        if (rd == -1) {
+            return -1;
+        }
+        /* Updates the current offset */
+        offset += rd;
+    }
+    return 0;
+}
+
+
 int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
     int buffer_size = OP_CODE_SIZE + MAX_CPATH_LEN;
 
+    /* TODO: check if this is really needed, since the truncated name will work either way */
     int c_path_size = strlen(client_pipe_path);
-
     /* Checks if the client_pipe's name fits in the buffer */
     if (c_path_size > MAX_CPATH_LEN - 1) {
-        printf("tfs_mount(): client pipe name too big.\n");
         return -1;
     }
 
@@ -32,7 +76,6 @@ int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
     char buffer[buffer_size];
 
     buffer[0] = (char) TFS_OP_CODE_MOUNT;
-    /* TODO: strncat? */
     strcpy(buffer + OP_CODE_SIZE, client_pipe_path);
     buffer[c_path_size] = '\0';
 
@@ -40,21 +83,20 @@ int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
         return -1;
     }
 
-    /* TODO: Server pipe already open? */
-    /* Opens the server for writing. */
+    /* Opens the server's pipe for every future writing */
     server_fd = open(server_pipe_path, O_WRONLY);
     if (server_fd == -1) {
         unlick(client_pipe_path);
         return -1;
     }
 
-    if (write(server_fd, buffer, buffer_size) != 0) {
+    if (write_until_success(server_fd, buffer, buffer_size) != 0) {
         close(server_fd);
         unlink(client_pipe_path);
         return -1;
     }
 
-
+    /* Opens the client's pipe for every future reading (in the same session) */
     client_fd = open(client_pipe_path, O_RDONLY);
     if (client_fd == -1) {
         close(server_fd);
@@ -62,7 +104,7 @@ int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
         return -1;
     }
 
-    if (read(client_fd, &curr_session_id, sizeof(int)) != 0) {
+    if (read_until_success(client_fd, &curr_session_id, sizeof(int)) != 0) {
         close(server_fd);
         close(client_fd);
         unlink(client_pipe_path);
@@ -81,20 +123,35 @@ int tfs_unmount() {
     char buffer[buffer_size];
 
     buffer[0] = (char) TFS_OP_CODE_UNMOUNT;
-    /* Stores the current client's session id in the buffer */
     memcpy(buffer + OP_CODE_SIZE, &curr_session_id, sizeof(int));
 
-    if (write(server_fd, buffer, buffer_size) != 0) {
-        close(server_fd);
+    if (write_until_success(server_fd, buffer, buffer_size) != 0) {
+        return -1;
+    }
+    
+    /* Stores the client's pipe path name, sent by the server to the client */
+    char cpipe_name[MAX_CPATH_LEN];
+
+    if (read_until_success(client_fd, cpipe_name, MAX_CPATH_LEN) != 0) {
         return -1;
     }
 
-    
-    char cpipe_name[MAX_CPATH_LEN];
+    /* Closes the client's pipe */
+    if (close(client_fd) != 0) {
+        return -1;
+    }
 
-    // if (read(client_fd, nome do pipe, ...)
-    // close(client)
-    // unlink(nome do pipe)
+    /* Deletes the named pipe */
+    if (unlink(cpipe_name) != 0) {
+        return -1;
+    }
+
+    /* TODO: close the server pipe? */
+    /*
+    if (close(server_fd) != 0) {
+        return -1;
+    }
+    */
 
     return -1;
 }
