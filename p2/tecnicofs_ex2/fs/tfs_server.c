@@ -29,19 +29,19 @@ static inline bool valid_session_id(int session_id) {
  * Makes sure "write()" actually writes all the bytes the user requested
  * Inputs:
  *  - file descriptor to write to
- *  - source of the content to write
- *  - size of the content
- * 
+ *  - source of the data to write
+ *  - size of the data
  * Returns: 0 if successful, -1 otherwise
  */
 int write_until_success(int fd, char const *source, size_t size) {
-    int offset = 0, wr;
-    while ((wr = write(fd, source + offset, size)) != size && errno != EINTR) {
-        if (wr == -1) {
-            return -1;
-        }
-        /* Updates the current offset */
-        offset += wr;
+    int wr;
+    while ((wr = write(fd, source, size)) != size && errno == EINTR) {
+        /* Nothing to do */
+    }
+    /* If even after the cycle write() hasn't written all the bytes
+     * we want, -1 is returned */
+    if (wr != size) {
+        return -1;
     }
     return 0;
 }
@@ -53,23 +53,59 @@ int write_until_success(int fd, char const *source, size_t size) {
  *  - file descriptor to read from
  *  - destination of the content read
  *  - size of the content
- * 
  * Returns: 0 if successful, -1 otherwise
  */
 int read_until_success(int fd, char *destination, size_t size) {
     int offset = 0, rd;
-    while ((rd = read(fd, destination + offset, size)) != size && errno != EINTR) {
-        if (rd == -1) {
-            return -1;
-        }
+    /* TODO: fd + offset maybe? */
+    while ((rd = read(fd, destination + offset, size)) != size && errno == EINTR) {
         /* Updates the current offset */
         offset += rd;
+    }
+    /* If even after the cycle read() hasn't read all the bytes
+     * we want, -1 is returned */
+    if (rd != size) {
+        return -1;
     }
     return 0;
 }
 
+
+/*
+ * Makes sure "open()" actually opens the pipe given
+ * Inputs:
+ *  - path to the pipe
+ * Returns: file descriptor of the pipe if successful, -1 otherwise
+ */
+int open_until_success(char const *pipe_path, int oflag) {
+    int fd;
+    while ((fd = open(pipe_path, oflag)) == -1 && errno == EINTR) {
+        /* Nothing to do */
+    }
+    /* Returns the current fd, if -1 it will be dealt with later */
+    return fd;
+}
+
+
+/*
+ * Makes sure "close()" actually closes the file given
+ * Inputs:
+ *  - file descriptor to close
+ * Returns: 0 if successful, -1 otherwise
+ */
+int close_until_success(int const fd) {
+    int x;
+    while ((x = close(fd)) == -1 && errno == EINTR) {
+        /* Nothing to do */
+    }
+    return x;
+}
+
+
 /*
  * Initilizes the server's table and pipe
+ * Inputs:
+ *  - server pipe's path name
  */
 void tfs_server_init(char const *server_pipe_path) {
     if (pthread_cond_init(&request_cond, NULL) != 0) {
@@ -101,6 +137,8 @@ void tfs_server_init(char const *server_pipe_path) {
 
 /*
  * Destroys the Server's state
+ * Inputs:
+ *  - server's file descriptor
  */
 void tfs_server_destroy(int server_fd) {
     if (pthread_cond_destroy(&request_cond) != 0) {
@@ -114,13 +152,14 @@ void tfs_server_destroy(int server_fd) {
     }
 
     for (size_t i = 0; i < MAX_SERVER_SESSIONS; i++) {
-        if (close(session_id_table[i]) != 0) {
+        /* TODO: maybe unlink the clients? */
+        if (close_until_success(session_id_table[i].client_fd) != 0) {
             perror("[ERR]: ");
             exit(1);
         }
     }
 
-    if (close(server_fd) != 0) {
+    if (close_until_success(server_fd) != 0) {
         perror("[ERR]: ");
         exit(1);
     }
@@ -180,11 +219,14 @@ int session_id_remove(int session_id) {
 /* 
  * Handles Mount requests from the clients
  * Inputs:
- *  - client pipe path name
+ *  - arguments for mount (client pipe path)
  * Returns: 0 if successful, -1 otherwise
  */
-int tfs_server_mount(char const *client_pipe_path) {
-    /* TODO: fields as argument? */
+int tfs_server_mount(char const *args) {
+    /* Concatenates the args given, allowing us to only use what is
+     * necessary (client pipe path) */
+    char client_pipe_path[MAX_CPATH_LEN];
+    strcpy(client_pipe_path, args);
 
     int session_id = session_id_alloc();
 
@@ -208,14 +250,14 @@ int tfs_server_mount(char const *client_pipe_path) {
     }
 
     /* Opens the client's pipe for evry future witing */
-    int client_fd = open(client_pipe_path, O_WRONLY);
+    int client_fd = open_until_success(client_pipe_path, O_WRONLY);
     if (client_fd == -1) {
         return -1;
     }
 
     /* Writes to the client's pipe its session id */
     if (write_until_success(client_fd, session_id, sizeof(int)) != 0) {
-        close(client_fd);
+        close_until_success(client_fd);
         return -1;
     }
 
@@ -239,15 +281,22 @@ int tfs_server_mount(char const *client_pipe_path) {
 /* 
  * Handles Unmount requests from the clients
  * Inputs:
- *  - client session id
+ *  - arguments for unmount (client session id)
  * Returns 0 if successful, -1 otherwise
  */
-int tfs_server_unmount(int session_id) {
+int tfs_server_unmount(char const *args) {
+    /* TODO: review this please... */
+    int session_id = (int) args[0];
+
     if (pthread_mutex_lock(&server_mutex) != 0) {
         return -1;
     }
 
     int client_fd = session_id_table[session_id].client_fd;
+
+    char cpath_name[MAX_CPATH_LEN];
+    /* TODO: uhhhhh? */
+    strcpy(cpath_name, session_id_table[session_id].path_name);
 
     if (pthread_mutex_unlock(&server_mutex) != 0) {
         return -1;
@@ -260,6 +309,13 @@ int tfs_server_unmount(int session_id) {
     }
 
     active_session_counter--;
+
+    /* Writes to the client's pipe its pipe's name (for unlinking by the client) */
+    if (write_until_success(client_fd, cpath_name, MAX_CPATH_LEN) != 0) {
+        close_until_success(client_fd);
+        return -1;
+    }
+
     if (active_session_counter < MAX_SERVER_SESSIONS) {
         pthread_cond_signal(&request_cond);
     }
@@ -313,7 +369,7 @@ int main(int argc, char **argv) {
     int server_fd;
 
     /* Opens the server's pipe for every future reading */
-    server_fd = open(pipename, O_RDONLY);
+    server_fd = open_until_success(pipename, O_RDONLY);
     if (server_fd == -1) {
         return -1;
     }
@@ -323,12 +379,9 @@ int main(int argc, char **argv) {
         /* Buffer that stores request's fields (OP_CODE + rest of the fields) */
         char request_buffer[MAX_REQUEST_SIZE];
 
-        // while para fazer read ate ler tudo, verificar se open/read retorna 0, fazer close() e open() do server.
-        // while ate open funcionar, errno == EINT
-        // shutdown -> exit(0)
-
         if (read_until_success(server_fd, request_buffer, MAX_REQUEST_SIZE) != 0) {
-            close(server_fd);
+            close_until_success(server_fd);
+            /* open(server) again? */
             return -1;
         }
 
@@ -361,3 +414,4 @@ int main(int argc, char **argv) {
 
     return 0;
 }
+

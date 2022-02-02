@@ -27,8 +27,8 @@ static int curr_session_id;
  */
 int write_until_success(int fd, char const *source, size_t size) {
     int offset = 0, wr;
-    while ((wr = write(fd, source + offset, size)) != size && errno != EINTR) {
-        if (wr == -1) {
+    while (offset != size) {
+        if ((wr = write(fd, source + offset, size)) == -1 && errno != EINTR) {
             return -1;
         }
         /* Updates the current offset */
@@ -49,8 +49,8 @@ int write_until_success(int fd, char const *source, size_t size) {
  */
 int read_until_success(int fd, char *destination, size_t size) {
     int offset = 0, rd;
-    while ((rd = read(fd, destination + offset, size)) != size && errno != EINTR) {
-        if (rd == -1) {
+    while (offset != size) {
+        if ((rd = read(fd, destination + offset, size)) == -1 && errno != EINTR) {
             return -1;
         }
         /* Updates the current offset */
@@ -77,7 +77,6 @@ int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
 
     buffer[0] = (char) TFS_OP_CODE_MOUNT;
     strcpy(buffer + OP_CODE_SIZE, client_pipe_path);
-    buffer[c_path_size] = '\0';
 
     if (mkfifo(client_pipe_path, 0777) != 0) {
         return -1;
@@ -131,7 +130,6 @@ int tfs_unmount() {
     
     /* Stores the client's pipe path name, sent by the server to the client */
     char cpipe_name[MAX_CPATH_LEN];
-
     if (read_until_success(client_fd, cpipe_name, MAX_CPATH_LEN) != 0) {
         return -1;
     }
