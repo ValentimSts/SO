@@ -1,12 +1,5 @@
 #include "tecnicofs_client_api.h"
 
-/* Extra includes */
-#include <stdio.h>
-#include <string.h>
-#include <fcntl.h>
-#include <errno.h>
-
-
 /* Global variables used to store both the server and clients's file descriptors */
 static int client_fd;
 static int server_fd;
@@ -27,8 +20,8 @@ static char curr_client_pipe_path[MAX_CPATH_LEN];
  *  - size of the data
  * Returns: 0 if successful, -1 otherwise
  */
-int write_until_success(int fd, char const *source, size_t size) {
-    int wr;
+int write_until_success(int fd, void const *source, size_t size) {
+    ssize_t wr;
     while ((wr = write(fd, source, size)) != size && errno == EINTR) {
         /* Nothing to do */
     }
@@ -49,8 +42,8 @@ int write_until_success(int fd, char const *source, size_t size) {
  *  - size of the content
  * Returns: 0 if successful, -1 otherwise
  */
-int read_until_success(int fd, char *destination, size_t size) {
-    int offset = 0, rd;
+int read_until_success(int fd, void *destination, size_t size) {
+    ssize_t offset = 0, rd;
     /* TODO: fd + offset maybe? */
     while ((rd = read(fd, destination + offset, size)) != size && errno == EINTR) {
         /* Updates the current offset */
@@ -97,7 +90,7 @@ int close_until_success(int const fd) {
 
 
 int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
-    int buffer_size = OP_CODE_SIZE + MAX_CPATH_LEN;
+    size_t buffer_size = OP_CODE_SIZE + MAX_CPATH_LEN;
     /* Stores the current path */
     strcpy(curr_client_pipe_path, client_pipe_path);
 
@@ -116,7 +109,7 @@ int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
     /* Opens the server's pipe for every future writing */
     server_fd = open_until_success(server_pipe_path, O_WRONLY);
     if (server_fd == -1) {
-        unlick(client_pipe_path);
+        unlink(client_pipe_path);
         return -1;
     }
 
@@ -151,7 +144,7 @@ int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
 }
 
 int tfs_unmount() {
-    int buffer_size = OP_CODE_SIZE + SESSION_ID_SIZE;
+    size_t buffer_size = OP_CODE_SIZE + SESSION_ID_SIZE;
 
     /* Buffer used to send unmount commands to the server:
      * - Structure:
@@ -199,7 +192,7 @@ int tfs_unmount() {
 int tfs_open(char const *name, int flags) {
     /* Size of the buffer used. Since "name" has a maximum size of 40 we use the same
      * macro as the one used for the client_pipe_path length */
-    int buffer_size = OP_CODE_SIZE + SESSION_ID_SIZE + MAX_CPATH_LEN + sizeof(int);
+    size_t buffer_size = OP_CODE_SIZE + SESSION_ID_SIZE + MAX_CPATH_LEN + sizeof(int);
 
     /* Buffer used to send open commands to the server
      * - Structure:
@@ -209,14 +202,14 @@ int tfs_open(char const *name, int flags) {
     buffer[0] = (char) TFS_OP_CODE_OPEN;
     memcpy(buffer + OP_CODE_SIZE, &curr_session_id, SESSION_ID_SIZE);
     strcpy(buffer + OP_CODE_SIZE + SESSION_ID_SIZE, name);
-    memcpy(buffer + OP_CODE_SIZE + SESSION_ID_SIZE + MAX_CPATH_LEN, &curr_session_id, SESSION_ID_SIZE);
+    memcpy(buffer + OP_CODE_SIZE + SESSION_ID_SIZE + MAX_CPATH_LEN, &flags, FLAG_SIZE);
 
     if (write_until_success(server_fd, buffer, buffer_size) != 0) {
         return -1;
     }
     
     int ret;
-    if (read_until_success(client_fd, ret, sizeof(int)) != 0) {
+    if (read_until_success(client_fd, &ret, RETURN_VAL_SIZE) != 0) {
         return -1;
     }
 
@@ -231,7 +224,7 @@ int tfs_open(char const *name, int flags) {
 
 
 int tfs_close(int fhandle) {
-    int buffer_size = OP_CODE_SIZE + SESSION_ID_SIZE + FHANDLE_SIZE;
+    size_t buffer_size = OP_CODE_SIZE + SESSION_ID_SIZE + FHANDLE_SIZE;
 
     /* Buffer used to send close commands to the server
      * - Structure:
@@ -247,7 +240,7 @@ int tfs_close(int fhandle) {
     }
     
     int ret;
-    if (read_until_success(client_fd, ret, sizeof(int)) != 0) {
+    if (read_until_success(client_fd, &ret, RETURN_VAL_SIZE) != 0) {
         return -1;
     }
 
@@ -263,7 +256,7 @@ int tfs_close(int fhandle) {
 
 ssize_t tfs_write(int fhandle, void const *buffer, size_t len) {
     /* Size of the buffer used (1024 comes from the size of a block) */
-    int buffer_size = OP_CODE_SIZE + SESSION_ID_SIZE + FHANDLE_SIZE + LEN_SIZE + len;
+    size_t buffer_size = OP_CODE_SIZE + SESSION_ID_SIZE + FHANDLE_SIZE + LEN_SIZE + len;
 
     /* Buffer used to send write commands to the server
      * - Structure:
@@ -280,8 +273,8 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t len) {
         return -1;
     }
     
-    int ret;
-    if (read_until_success(client_fd, ret, sizeof(int)) != 0) {
+    ssize_t ret;
+    if (read_until_success(client_fd, &ret, RDWR_VAL_SIZE) != 0) {
         return -1;
     }
 
@@ -296,24 +289,25 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t len) {
 
 
 ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
-    int buffer_size = OP_CODE_SIZE + SESSION_ID_SIZE + FHANDLE_SIZE + LEN_SIZE;
+    size_t buffer_size = OP_CODE_SIZE + SESSION_ID_SIZE + FHANDLE_SIZE + LEN_SIZE + len;
 
     /* Buffer used to send read commands to the server
      * - Structure:
-     *   OP_CODE | session_id | fhandle | len */
-    char write_buffer[buffer_size];
+     *   OP_CODE | session_id | fhandle | len | <buffer itself used to store the data read> */
+    char read_buffer[buffer_size];
 
-    write_buffer[0] = (char) TFS_OP_CODE_OPEN;
-    memcpy(write_buffer + OP_CODE_SIZE, &curr_session_id, SESSION_ID_SIZE);
-    memcpy(write_buffer + OP_CODE_SIZE + SESSION_ID_SIZE, &fhandle, FHANDLE_SIZE);
-    memcpy(write_buffer + OP_CODE_SIZE + SESSION_ID_SIZE + FHANDLE_SIZE, &len, LEN_SIZE);
+    read_buffer[0] = (char) TFS_OP_CODE_OPEN;
+    memcpy(read_buffer + OP_CODE_SIZE, &curr_session_id, SESSION_ID_SIZE);
+    memcpy(read_buffer + OP_CODE_SIZE + SESSION_ID_SIZE, &fhandle, FHANDLE_SIZE);
+    memcpy(read_buffer + OP_CODE_SIZE + SESSION_ID_SIZE + FHANDLE_SIZE, &len, LEN_SIZE);
+    memcpy(read_buffer + OP_CODE_SIZE + SESSION_ID_SIZE + FHANDLE_SIZE + LEN_SIZE, buffer, len);
 
-    if (write_until_success(server_fd, write_buffer, buffer_size) != 0) {
+    if (write_until_success(server_fd, read_buffer, buffer_size) != 0) {
         return -1;
     }
     
-    int ret;
-    if (read_until_success(client_fd, ret, sizeof(int)) != 0) {
+    ssize_t ret;
+    if (read_until_success(client_fd, &ret, RDWR_VAL_SIZE) != 0) {
         return -1;
     }
 
@@ -328,7 +322,7 @@ ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
 
 
 int tfs_shutdown_after_all_closed() {
-    int buffer_size = OP_CODE_SIZE;
+    size_t buffer_size = OP_CODE_SIZE + SESSION_ID_SIZE;
 
     /* Buffer used to send shutdown_after_all_closed commands to the server
      * - Structure:
@@ -343,7 +337,7 @@ int tfs_shutdown_after_all_closed() {
     }
     
     int ret;
-    if (read_until_success(client_fd, ret, sizeof(int)) != 0) {
+    if (read_until_success(client_fd, &ret, RETURN_VAL_SIZE) != 0) {
         return -1;
     }
 

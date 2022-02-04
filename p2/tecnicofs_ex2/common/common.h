@@ -3,17 +3,30 @@
 
 /* Maximum size of the client's pipe path name */
 #define MAX_CPATH_LEN (40)
+
 /* Size the op_code takes in the buffer */
 #define OP_CODE_SIZE (sizeof(char))
+
 /* Size the session id takes in the buffer */
 #define SESSION_ID_SIZE (sizeof(int))
+
 /* Size the fhandle takes in the buffer */
 #define FHANDLE_SIZE (sizeof(int))
+
 /* Size the len takes in the buffer */
 #define LEN_SIZE (sizeof(size_t))
+
+/* Size the flags take in the buffer */
+#define FLAG_SIZE (sizeof(int))
+
 /* Size of the return values sent to the clients by the server
- * as confirmation that the command as been executed */
+ * as confirmation that the command as been executed (used for
+ * every command except "read" and "write")*/
 #define RETURN_VAL_SIZE (sizeof(int))
+
+/* Size of the return value sent to the client by the server, on
+ * "read" and "write" command calls */
+#define RDWR_VAL_SIZE (sizeof(ssize_t))
 
 
 /* TODO: check where to put the defines/structs here or "config.h" */

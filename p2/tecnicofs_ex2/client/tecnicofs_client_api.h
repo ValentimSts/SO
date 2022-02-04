@@ -4,6 +4,18 @@
 #include "common/common.h"
 #include <sys/types.h>
 
+/* Extra includes */
+#include <stdio.h>
+#include <string.h>
+#include <fcntl.h>
+#include <errno.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#include <signal.h>
+#include <stdlib.h>
+
 /*
  * Establishes a session with a TecnicoFS server.
  * Input:

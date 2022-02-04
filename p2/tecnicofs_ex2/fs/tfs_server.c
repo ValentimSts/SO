@@ -1,10 +1,18 @@
 #include "operations.h"
 
 /* Extra includes */
+#include "common/common.h"
 #include <fcntl.h>
 #include <pthread.h>
 #include <stdbool.h>
 #include <errno.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#include <signal.h>
+#include <string.h>
+#include <stdlib.h>
 
 
 /* Session ID table */
@@ -37,8 +45,8 @@ static inline bool valid_session_id(int session_id) {
  *  - size of the data
  * Returns: 0 if successful, -1 otherwise
  */
-int write_until_success(int fd, char const *source, size_t size) {
-    int wr;
+int write_until_success(int fd, void const *source, size_t size) {
+    ssize_t wr;
     while ((wr = write(fd, source, size)) != size && errno == EINTR) {
         /* Nothing to do */
     }
@@ -59,8 +67,8 @@ int write_until_success(int fd, char const *source, size_t size) {
  *  - size of the content
  * Returns: 0 if successful, -1 otherwise
  */
-int read_until_success(int fd, char *destination, size_t size) {
-    int offset = 0, rd;
+int read_until_success(int fd, void *destination, size_t size) {
+    ssize_t offset = 0, rd;
     /* TODO: fd + offset maybe? */
     while ((rd = read(fd, destination + offset, size)) != size && errno == EINTR) {
         /* Updates the current offset */
@@ -304,7 +312,7 @@ void tfs_server_mount(void const *arg) {
     }
 
     /* Writes to the client's pipe its session id */
-    if (write_until_success(client_fd, session_id, SESSION_ID_SIZE) != 0) {
+    if (write_until_success(client_fd, &session_id, SESSION_ID_SIZE) != 0) {
         if (send_message(client_fd, -1) != 0) {
             exit(1);
         }
@@ -337,7 +345,8 @@ void tfs_server_unmount(void const *arg) {
 
     /* Gets the argument we need for the unmount command:
      * <client's session id> */
-    int session_id = *(int*) args[0];
+    int session_id;
+    memcpy(&session_id, args, SESSION_ID_SIZE);
 
     /* Protect the session_get function call */
     if (pthread_mutex_lock(&server_mutex) != 0) {
@@ -401,26 +410,28 @@ void tfs_server_open(void const *arg) {
 
     /* Gets the arguments we need for the open command:
      * <client's session id> | <file name> | flags */
-    int session_id = *(int*) args[0];
+    int session_id;
+    memcpy(&session_id, args, SESSION_ID_SIZE);
     char file_name[MAX_CPATH_LEN];
     strcpy(file_name, args + SESSION_ID_SIZE);
-    int flags = *(int*) (args + SESSION_ID_SIZE + MAX_CPATH_LEN);
+    int flags;
+    memcpy(&flags, args + SESSION_ID_SIZE + MAX_CPATH_LEN, SESSION_ID_SIZE);
 
     /* Protect the session_get function call */
     if (pthread_mutex_lock(&server_mutex) != 0) {
-        return -1;
+        exit(1);
     }
 
     client_session_t *client_session = session_get(session_id);
     if (client_session == NULL) {
-        return -1;
+        exit(1);
     }
 
     /* TODO: lock session */
     int client_fd = client_session->client_fd;
 
     if (pthread_mutex_unlock(&server_mutex) != 0) {
-        return -1;
+        exit(1);
     }
 
     /* Stores the return value of tfs_open() */
@@ -429,7 +440,7 @@ void tfs_server_open(void const *arg) {
 
     /* If for some reason tfs_close() returns -1, it won't be a problem for now,
      * as the client will deal with it accordingly */
-    if (write_until_success(client_fd, ret, RETURN_VAL_SIZE) != 0) {
+    if (write_until_success(client_fd, &ret, RETURN_VAL_SIZE) != 0) {
         if (send_message(client_fd, -1) != 0) {
             exit(1);
         }
@@ -438,30 +449,33 @@ void tfs_server_open(void const *arg) {
 }
 
 
-int tfs_server_close(void const *arg) {
+void tfs_server_close(void const *arg) {
     char *args = (char*) arg;
 
     /* Gets the arguments we need for the close command:
      * session_id | fhandle */
-    int session_id = *(int*) args[0];
-    int fhandle = *(int*) (args + SESSION_ID_SIZE);
+    int session_id;
+    memcpy(&session_id, args, SESSION_ID_SIZE);
+    int fhandle;
+    memcpy(&fhandle, args + SESSION_ID_SIZE, FHANDLE_SIZE);
 
     /* Protect the session_get function call */
     if (pthread_mutex_lock(&server_mutex) != 0) {
-        return -1;
+        exit(1);
     }
 
     client_session_t *client_session = session_get(session_id);
     if (client_session == NULL) {
-        return -1;
+        exit(1);
     }
 
     /* TODO: lock session */
     int client_fd = client_session->client_fd;
 
     if (pthread_mutex_unlock(&server_mutex) != 0) {
-        return -1;
+        exit(1);
     }
+
 
     /* Stores the return value of tfs_close() */
     int ret;
@@ -469,7 +483,7 @@ int tfs_server_close(void const *arg) {
 
     /* If for some reason tfs_close() returns -1, it won't be a problem for now,
      * as the client will deal with it accordingly */
-    if (write_until_success(client_fd, ret, RETURN_VAL_SIZE) != 0) {
+    if (write_until_success(client_fd, &ret, RETURN_VAL_SIZE) != 0) {
         if (send_message(client_fd, -1) != 0) {
             exit(1);
         }
@@ -478,41 +492,44 @@ int tfs_server_close(void const *arg) {
 }
 
 
-int tfs_server_write(void const *arg) {
+void tfs_server_write(void const *arg) {
     char *args = (char*) arg;
 
     /* Gets the arguments we need for the write command:
      * session_id | fhandle | len | <data to write> */
-    int session_id = *(int*) args[0];
-    int fhandle = *(int*) (args + SESSION_ID_SIZE);
-    int len = *(int*) (args + SESSION_ID_SIZE + FHANDLE_SIZE);
+    int session_id;
+    memcpy(&session_id, args, SESSION_ID_SIZE);
+    int fhandle;
+    memcpy(&fhandle, args + SESSION_ID_SIZE, FHANDLE_SIZE);
+    size_t len;
+    memcpy(&len, args + SESSION_ID_SIZE + FHANDLE_SIZE, LEN_SIZE);
     char to_write[len];
     strcpy(to_write, args + SESSION_ID_SIZE + FHANDLE_SIZE + len);
 
     /* Protect the session_get function call */
     if (pthread_mutex_lock(&server_mutex) != 0) {
-        return -1;
+        exit(1);
     }
 
     client_session_t *client_session = session_get(session_id);
     if (client_session == NULL) {
-        return -1;
+        exit(1);
     }
 
     /* TODO: lock session */
     int client_fd = client_session->client_fd;
 
     if (pthread_mutex_unlock(&server_mutex) != 0) {
-        return -1;
+        exit(1);
     }
 
     /* Stores the return value of tfs_close() */
-    int ret;
+    ssize_t ret;
     ret = tfs_write(fhandle, to_write, len);
 
     /* If for some reason tfs_write() returns -1, it won't be a problem for now,
      * as the client will deal with it accordingly */
-    if (write_until_success(client_fd, ret, RETURN_VAL_SIZE) != 0) {
+    if (write_until_success(client_fd, &ret, RDWR_VAL_SIZE) != 0) {
         if (send_message(client_fd, -1) != 0) {
             exit(1);
         }
@@ -521,40 +538,42 @@ int tfs_server_write(void const *arg) {
 }
 
 
-int tfs_server_read(void const *arg) {
+void tfs_server_read(void const *arg) {
     char *args = (char*) arg;
 
     /* Gets the arguments we need for the read command:
      * session_id | fhandle | len */
-    int session_id = *(int*) args[0];
-    int fhandle = *(int*) (args + SESSION_ID_SIZE);
-    int len = *(int*) (args + SESSION_ID_SIZE + FHANDLE_SIZE);
+    int session_id;
+    memcpy(&session_id, args, SESSION_ID_SIZE);
+    int fhandle;
+    memcpy(&fhandle, args + SESSION_ID_SIZE, FHANDLE_SIZE);
+    size_t len;
+    memcpy(&len, args + SESSION_ID_SIZE + FHANDLE_SIZE, LEN_SIZE);
 
     /* Protect the session_get function call */
     if (pthread_mutex_lock(&server_mutex) != 0) {
-        return -1;
+        exit(1);
     }
 
     client_session_t *client_session = session_get(session_id);
     if (client_session == NULL) {
-        return -1;
+        exit(1);
     }
 
     /* TODO: lock session */
     int client_fd = client_session->client_fd;
 
     if (pthread_mutex_unlock(&server_mutex) != 0) {
-        return -1;
+        exit(1);
     }
     
-    char read[len];
     /* Stores the return value of tfs_read() */
-    int ret;
-    ret = tfs_read(fhandle, read, len);
+    ssize_t ret;
+    ret = tfs_read(fhandle, args + SESSION_ID_SIZE + FHANDLE_SIZE + LEN_SIZE, len);
 
     /* If for some reason tfs_read() returns -1, it won't be a problem for now,
      * as the client will deal with it accordingly */
-    if (write_until_success(client_fd, ret, RETURN_VAL_SIZE) != 0) {
+    if (write_until_success(client_fd, &ret, RDWR_VAL_SIZE) != 0) {
         if (send_message(client_fd, -1) != 0) {
             exit(1);
         }
@@ -563,38 +582,40 @@ int tfs_server_read(void const *arg) {
 }
 
 
-int tfs_server_shutdown(void const *arg) {
+void tfs_server_shutdown(void const *arg) {
     char *args = (char*) arg;
 
     /* Gets the arguments we need for the read command:
      * session_id | fhandle */
-    int session_id = *(int*) args[0];
-    int fhandle = *(int*) (args + SESSION_ID_SIZE);
+    int session_id;
+    memcpy(&session_id, args, SESSION_ID_SIZE);
+    int fhandle;
+    memcpy(&fhandle, args + SESSION_ID_SIZE, FHANDLE_SIZE);
 
     /* Protect the session_get function call */
     if (pthread_mutex_lock(&server_mutex) != 0) {
-        return -1;
+        exit(1);
     }
 
     client_session_t *client_session = session_get(session_id);
     if (client_session == NULL) {
-        return -1;
+        exit(1);
     }
 
     /* TODO: lock session */
     int client_fd = client_session->client_fd;
 
     if (pthread_mutex_unlock(&server_mutex) != 0) {
-        return -1;
+        exit(1);
     }
 
     /* Stores the return value of tfs_destroy_after_all_closed() */
     int ret;
-    ret = tfs_shutdown_after_all_closed();
+    ret = tfs_destroy_after_all_closed();
 
     /* If for some reason tfs_destroy_after_all_closed() returns -1, it won't 
      * be a problem for now, as the client will deal with it accordingly */
-    if (write_until_success(client_fd, ret, RETURN_VAL_SIZE) != 0) {
+    if (write_until_success(client_fd, &ret, RETURN_VAL_SIZE) != 0) {
         if (send_message(client_fd, -1) != 0) {
             exit(1);
         }
@@ -614,7 +635,7 @@ int main(int argc, char **argv) {
     printf("Starting TecnicoFS server with pipe called %s\n", pipename);
 
     /* Initialize the server */
-    server_init(pipename);
+    tfs_server_init(pipename);
 
     int server_fd;
 
@@ -629,7 +650,7 @@ int main(int argc, char **argv) {
         /* Buffer that stores request's fields (OP_CODE + rest of the fields) */
         char request_buffer[MAX_REQUEST_SIZE];
 
-        int offset = 0, rd;
+        ssize_t offset = 0, rd;
         while ((rd = read(server_fd, request_buffer + offset, MAX_REQUEST_SIZE)) != MAX_REQUEST_SIZE && errno == EINTR) {
             /* If read returns 0, we "reboot" the server */
             if (rd == 0) {
@@ -651,24 +672,35 @@ int main(int argc, char **argv) {
 
             case 1:
                 tfs_server_mount(request_buffer+1);
+                break;
             
             case 2:
                 tfs_server_unmount(request_buffer+1);
+                break;
             
             case 3:
                 tfs_server_open(request_buffer+1);
+                break;
 
             case 4:
                 tfs_server_close(request_buffer+1);
+                break;
 
             case 5:
                 tfs_server_write(request_buffer+1);
+                break;
 
             case 6:
                 tfs_server_read(request_buffer+1);
+                break;
 
             case 7:
                 tfs_server_shutdown(request_buffer+1);
+                break;
+
+            default:
+                printf("oii :)\n");
+                break;
         }
     }
 

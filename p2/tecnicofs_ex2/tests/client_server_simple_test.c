@@ -22,6 +22,8 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+    printf("client pipe: %s\nserver pipe: %s\n", argv[1], argv[2]);
+
     assert(tfs_mount(argv[1], argv[2]) == 0);
 
     f = tfs_open(path, TFS_O_CREAT);
