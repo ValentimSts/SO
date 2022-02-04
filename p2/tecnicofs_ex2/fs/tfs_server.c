@@ -17,9 +17,10 @@ static int active_session_counter;
 /* Cond variable used to control the number of requests taken in 
  * by the server */
 static pthread_cond_t request_cond;
+
+/* Server global mutex */
 static pthread_mutex_t server_mutex;
 
-static pthread_cond_t shutdown_cond;
 
 static inline bool valid_session_id(int session_id) {
     return session_id >= 0 && session_id < MAX_SERVER_SESSIONS;
@@ -42,23 +43,14 @@ void tfs_server_init(char const *server_pipe_path) {
         exit(1);
     }
 
-    if (pthread_cond_init(&shutdown_cond, NULL) != 0) {
-        pthread_cond_destroy(&request_cond);
-        perror("[ERR]");
-        exit(1);
-    }
-
     if (pthread_mutex_init(&server_mutex, NULL) != 0) {
         pthread_cond_destroy(&request_cond);
-        pthread_cond_destroy(&shutdown_cond);
         perror("[ERR]");
         exit(1);
     }
-
 
     if (mkfifo(server_pipe_path, 0777) != 0 && errno != EEXIST) {
         pthread_cond_destroy(&request_cond);
-        pthread_cond_destroy(&shutdown_cond);
         pthread_mutex_destroy(&server_mutex);
         perror("[ERR]");
         exit(1);
@@ -80,25 +72,25 @@ void tfs_server_init(char const *server_pipe_path) {
  */
 void tfs_server_destroy(int server_fd) {
     if (pthread_cond_destroy(&request_cond) != 0) {
-        perror("[ERR]: ");
+        perror("[ERR]");
         exit(1);
     }
 
     if (pthread_mutex_destroy(&server_mutex) != 0) {
-        perror("[ERR]: ");
+        perror("[ERR]");
         exit(1);
     }
 
     for (size_t i = 0; i < MAX_SERVER_SESSIONS; i++) {
         /* TODO: maybe unlink the clients? */
         if (close_until_success(session_id_table[i].client_fd) != 0) {
-            perror("[ERR]: ");
+            perror("[ERR]");
             exit(1);
         }
     }
 
     if (close_until_success(server_fd) != 0) {
-        perror("[ERR]: ");
+        perror("[ERR]");
         exit(1);
     }
 }
@@ -195,24 +187,21 @@ int send_message(int dest_fd, int ret) {
 void tfs_server_mount(void const *arg) {
     char *args = (char*) arg;
 
+    printf("%s\n", args);
+
     /* Gets the argument we need for the mount command:
      * <client pipe path name> */
     char client_pipe_path[MAX_CPATH_LEN];
-    strcpy(client_pipe_path, args);
+    memcpy(client_pipe_path, args, MAX_CPATH_LEN);
 
-    printf("cpath: %s\n", client_pipe_path);
-    
-    printf("server side\n");
     /* Opens the client's pipe for every future witing */
     int client_fd = open_until_success(client_pipe_path, O_WRONLY);
     if (client_fd == -1) {
-        /* TODO: exit? */
+        printf("fds\n");
         exit(1);
     }
 
     int session_id = session_id_alloc();
-
-    printf("session id: %d\n", session_id);
 
     if (pthread_mutex_lock(&server_mutex) != 0) {
         exit(1);
@@ -238,11 +227,11 @@ void tfs_server_mount(void const *arg) {
         return;
     }
 
-    active_session_counter++;
-
     if (pthread_mutex_lock(&server_mutex) != 0) {
         exit(1);
     }
+
+    active_session_counter++;
 
     /* Fills the structs's fields with the client's information */
     session_id_table[session_id].client_fd = client_fd;
@@ -250,6 +239,8 @@ void tfs_server_mount(void const *arg) {
     if (pthread_mutex_unlock(&server_mutex) != 0) {
        exit(1);
     }
+
+    printf("bruhh\n");
 }
 
 
@@ -590,31 +581,31 @@ int main(int argc, char **argv) {
             /* "request_buffer+1" is used to skip the OP_CODE */
 
             case 1:
-                tfs_server_mount(request_buffer+1);
+                tfs_server_mount(request_buffer+OP_CODE_SIZE);
                 break;
             
             case 2:
-                tfs_server_unmount(request_buffer+1);
+                tfs_server_unmount(request_buffer+OP_CODE_SIZE);
                 break;
             
             case 3:
-                tfs_server_open(request_buffer+1);
+                tfs_server_open(request_buffer+OP_CODE_SIZE);
                 break;
 
             case 4:
-                tfs_server_close(request_buffer+1);
+                tfs_server_close(request_buffer+OP_CODE_SIZE);
                 break;
 
             case 5:
-                tfs_server_write(request_buffer+1);
+                tfs_server_write(request_buffer+OP_CODE_SIZE);
                 break;
 
             case 6:
-                tfs_server_read(request_buffer+1);
+                tfs_server_read(request_buffer+OP_CODE_SIZE);
                 break;
 
             case 7:
-                tfs_server_shutdown(request_buffer+1);
+                tfs_server_shutdown(request_buffer+OP_CODE_SIZE);
                 break;
 
             default:
