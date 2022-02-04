@@ -16,8 +16,6 @@ static char curr_client_pipe_path[MAX_CPATH_LEN];
 
 int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
     size_t buffer_size = OP_CODE_SIZE + MAX_CPATH_LEN;
-    /* Stores the current path */
-    strcpy(curr_client_pipe_path, client_pipe_path);
 
     /* Buffer used to send mount commands to the server:
      * - Structure:
@@ -25,13 +23,15 @@ int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
     char buffer[buffer_size];
 
     buffer[0] = (char) TFS_OP_CODE_MOUNT;
-    strcpy(buffer + OP_CODE_SIZE, client_pipe_path);
+    memcpy(buffer + OP_CODE_SIZE, client_pipe_path, MAX_CPATH_LEN);
+
+    printf("buffer: %s\n", buffer);
 
     if (mkfifo(client_pipe_path, 0777) != 0 && errno != EEXIST) {
         printf("joao1\n");
         return -1;
     }
-
+    
     printf("client side server\n");
     /* Opens the server's pipe for every future writing */
     server_fd = open_until_success(server_pipe_path, O_WRONLY);
