@@ -66,8 +66,8 @@ fmt: $(SOURCES) $(HEADERS)
 # Note the lack of a rule.
 # make uses a set of default rules, one of which compiles C binaries
 # the CC, LD, CFLAGS and LDFLAGS are used in this rule
-tests/client_server_simple_test: tests/client_server_simple_test.o client/tecnicofs_client_api.o
-fs/tfs_server: fs/operations.o fs/state.o
+tests/client_server_simple_test: tests/client_server_simple_test.o client/tecnicofs_client_api.o common/common.o
+fs/tfs_server: fs/operations.o fs/state.o common/common.o
 tests/lib_destroy_after_all_closed_test: fs/operations.o fs/state.o
 
 clean:
