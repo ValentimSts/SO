@@ -20,7 +20,7 @@ static client_session_t session_id_table[MAX_SERVER_SESSIONS];
 static char free_session_table[MAX_SERVER_SESSIONS];
 
 /* Session's thread table */
-static pthread_t session_thread_table[MAX_SERVER_SESSIONS];
+/* static pthread_t session_thread_table[MAX_SERVER_SESSIONS]; */
 
 /* Counter used to keep track of how many active sessions the server is handling */
 static int active_session_counter;
@@ -121,34 +121,34 @@ int close_until_success(int const fd) {
  */
 void tfs_server_init(char const *server_pipe_path) {
     if (tfs_init() != 0) {
-        perror("[ERR]: ");
+        perror("[ERR]");
         exit(1);
     }
 
     if (pthread_cond_init(&request_cond, NULL) != 0) {
-        perror("[ERR]: ");
+        perror("[ERR]");
         exit(1);
     }
 
     if (pthread_cond_init(&shutdown_cond, NULL) != 0) {
         pthread_cond_destroy(&request_cond);
-        perror("[ERR]: ");
+        perror("[ERR]");
         exit(1);
     }
 
     if (pthread_mutex_init(&server_mutex, NULL) != 0) {
         pthread_cond_destroy(&request_cond);
         pthread_cond_destroy(&shutdown_cond);
-        perror("[ERR]: ");
+        perror("[ERR]");
         exit(1);
     }
 
 
-    if (mkfifo(server_pipe_path, 0777) != 0) {
+    if (mkfifo(server_pipe_path, 0777) != 0 && errno != EEXIST) {
         pthread_cond_destroy(&request_cond);
         pthread_cond_destroy(&shutdown_cond);
         pthread_mutex_destroy(&server_mutex);
-        perror("[ERR]: ");
+        perror("[ERR]");
         exit(1);
     }
 
