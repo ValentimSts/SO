@@ -103,6 +103,7 @@ int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
     strcpy(buffer + OP_CODE_SIZE, client_pipe_path);
 
     if (mkfifo(client_pipe_path, 0777) != 0) {
+        printf("joao1\n");
         return -1;
     }
 
@@ -110,12 +111,14 @@ int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
     server_fd = open_until_success(server_pipe_path, O_WRONLY);
     if (server_fd == -1) {
         unlink(client_pipe_path);
+        printf("joao2\n");
         return -1;
     }
 
     if (write_until_success(server_fd, buffer, buffer_size) != 0) {
         close_until_success(server_fd);
         unlink(client_pipe_path);
+        printf("joao3\n");
         return -1;
     }
 
@@ -124,6 +127,7 @@ int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
     if (client_fd == -1) {
         close_until_success(server_fd);
         unlink(client_pipe_path);
+        printf("joao4\n");
         return -1;
     }
 
@@ -131,12 +135,14 @@ int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
         close_until_success(server_fd);
         close_until_success(client_fd);
         unlink(client_pipe_path);
+        printf("joao5\n");
         return -1;
     }
 
     /* In case the server sent a -1 to the client, an error ocurred on the
      * server's side, and so, we return error */
     if (curr_session_id == -1) {
+        printf("joao6\n");
         return -1;
     }
 
