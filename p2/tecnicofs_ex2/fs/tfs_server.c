@@ -9,14 +9,7 @@ static client_session_t session_id_table[MAX_SERVER_SESSIONS];
 static char free_session_table[MAX_SERVER_SESSIONS];
 
 /* Session's thread table */
-/* static pthread_t session_thread_table[MAX_SERVER_SESSIONS]; */
-
-/* Counter used to keep track of how many active sessions the server is handling */
-static int active_session_counter;
-
-/* Cond variable used to control the number of requests taken in 
- * by the server */
-static pthread_cond_t request_cond;
+static pthread_t session_thread_table[MAX_SERVER_SESSIONS];
 
 /* Server global mutex */
 static pthread_mutex_t server_mutex;
@@ -38,29 +31,30 @@ void tfs_server_init(char const *server_pipe_path) {
         exit(1);
     }
 
-    if (pthread_cond_init(&request_cond, NULL) != 0) {
+    if (pthread_mutex_init(&server_mutex, NULL) != 0) {
         perror("[ERR]");
         exit(1);
     }
 
-    if (pthread_mutex_init(&server_mutex, NULL) != 0) {
-        pthread_cond_destroy(&request_cond);
-        perror("[ERR]");
-        exit(1);
-    }
+    unlink(server_pipe_path);
 
     if (mkfifo(server_pipe_path, 0777) != 0 && errno != EEXIST) {
-        pthread_cond_destroy(&request_cond);
         pthread_mutex_destroy(&server_mutex);
         perror("[ERR]");
         exit(1);
     }
 
-    /* In the beggining there are no active server sessions */
-    active_session_counter = 0;
-
     for (size_t i = 0; i < MAX_SERVER_SESSIONS; i++) {
         free_session_table[i] = FREE;
+        if (pthread_mutex_init(&session_id_table[i].client_mutex, NULL) != 0) {
+            pthread_mutex_destroy(&server_mutex);
+            exit(1);
+        }
+        if (pthread_cond_init(&session_id_table[i].client_cond, NULL) != 0) {
+            pthread_mutex_destroy(&session_id_table[i].client_mutex);
+            pthread_mutex_destroy(&server_mutex);
+            exit(1);
+        }
     }
 }
 
@@ -71,11 +65,6 @@ void tfs_server_init(char const *server_pipe_path) {
  *  - server's file descriptor
  */
 void tfs_server_destroy(int server_fd) {
-    if (pthread_cond_destroy(&request_cond) != 0) {
-        perror("[ERR]");
-        exit(1);
-    }
-
     if (pthread_mutex_destroy(&server_mutex) != 0) {
         perror("[ERR]");
         exit(1);
@@ -97,6 +86,76 @@ void tfs_server_destroy(int server_fd) {
 
 
 /*
+ * Locks a session's mutex
+ * Inputs:
+ * - session we want to lock
+ * Returns: 0 if successful, -1 otherwise
+ */
+int session_id_lock(client_session_t *session) {
+    if (pthread_mutex_lock(&session->client_mutex) != 0){
+        return -1;
+    }
+    return 0;
+}
+
+
+/*
+ * Unlocks a session's mutex
+ * Inputs:
+ * - session we want to unlock
+ * Returns: 0 if successful, -1 otherwise
+ */
+int session_id_unlock(client_session_t *session) {
+    if (pthread_mutex_unlock(&session->client_mutex) != 0){
+        return -1;
+    }
+    return 0;
+}
+
+
+/*
+ * Puts a session on hold (wait)
+ * Inputs:
+ * - session we want to wait
+ * Returns: 0 if successful, -1 otherwise
+ */
+int session_cond_wait(client_session_t *session) {
+    if (session_id_lock(session) != 0) {
+        return -1;
+    }
+
+    if (pthread_cond_wait(&session->client_cond, &session->client_mutex) != 0) {
+        session_id_unlock(session);
+        return -1;
+    }
+
+    session_id_unlock(session);
+    return 0;
+}
+
+
+/*
+ * Sends a signal to a session
+ * Inputs:
+ * - session we want to signal
+ * Returns: 0 if successful, -1 otherwise
+ */
+int session_cond_signal(client_session_t *session) {
+    if (session_id_lock(session) != 0) {
+        return -1;
+    }
+
+    if (pthread_cond_signal(&session->client_cond) != 0) {
+        session_id_unlock(session);
+        return -1;
+    }
+
+    session_id_unlock(session);
+    return 0;
+}
+
+
+/*
  * Allocates a new entry for the current session
  * Returns: entry index if successful, -1 otherwise
  */
@@ -114,7 +173,6 @@ int session_id_alloc() {
                 return -1;
             }
 
-            printf("%d\n", i);
             return i;
         }
     }
@@ -187,8 +245,6 @@ int send_message(int dest_fd, int ret) {
 void tfs_server_mount(void const *arg) {
     char *args = (char*) arg;
 
-    printf("%s\n", args);
-
     /* Gets the argument we need for the mount command:
      * <client pipe path name> */
     char client_pipe_path[MAX_CPATH_LEN];
@@ -197,26 +253,19 @@ void tfs_server_mount(void const *arg) {
     /* Opens the client's pipe for every future witing */
     int client_fd = open_until_success(client_pipe_path, O_WRONLY);
     if (client_fd == -1) {
-        printf("fds\n");
+        unlink(client_pipe_path);
         exit(1);
     }
 
     int session_id = session_id_alloc();
 
-    if (pthread_mutex_lock(&server_mutex) != 0) {
-        exit(1);
-    }
-
-    /* If session_id == -1 it means there is no more space for any more requests
-     * to the server (atleast for now) and so we wait for an empty entry to appear */
+    /* If session_id == -1 it means there is no more space for any more sessions
+     * to the server and so we notify the client with an error */
     if (session_id == -1) {
-        if (pthread_cond_wait(&request_cond, &server_mutex) != 0) {
+        if (send_message(client_fd, -1) != 0) {
             exit(1);
         }
-    }
-
-    if (pthread_mutex_unlock(&server_mutex) != 0) {
-        exit(1);
+        return;
     }
 
     /* Writes to the client's pipe its session id */
@@ -231,16 +280,12 @@ void tfs_server_mount(void const *arg) {
         exit(1);
     }
 
-    active_session_counter++;
-
     /* Fills the structs's fields with the client's information */
     session_id_table[session_id].client_fd = client_fd;
 
     if (pthread_mutex_unlock(&server_mutex) != 0) {
        exit(1);
     }
-
-    printf("bruhh\n");
 }
 
 
@@ -254,7 +299,7 @@ void tfs_server_unmount(void const *arg) {
     char *args = (char*) arg;
 
     /* Gets the argument we need for the unmount command:
-     * <client's session id> */
+     * session_id */
     int session_id;
     memcpy(&session_id, args, SESSION_ID_SIZE);
 
@@ -265,8 +310,7 @@ void tfs_server_unmount(void const *arg) {
 
     client_session_t *client_session = session_get(session_id);
     if (client_session == NULL) {
-        /* TODO: review this */
-        exit(1);
+        return;
     }
 
     int client_fd = client_session->client_fd;
@@ -292,20 +336,6 @@ void tfs_server_unmount(void const *arg) {
         }
         return;
     }
-
-    if (pthread_mutex_lock(&server_mutex) != 0) {
-        exit(1);
-    }
-
-    active_session_counter--;
-
-    if (active_session_counter < MAX_SERVER_SESSIONS) {
-        pthread_cond_signal(&request_cond);
-    }
-
-    if (pthread_mutex_unlock(&server_mutex) != 0) {
-        exit(1);
-    }
 }
 
 
@@ -319,30 +349,13 @@ void tfs_server_open(void const *arg) {
     char *args = (char*) arg;
 
     /* Gets the arguments we need for the open command:
-     * <client's session id> | <file name> | flags */
-    int session_id;
-    memcpy(&session_id, args, SESSION_ID_SIZE);
+     * client_fd | <file name> | flags */
+    int client_fd;
+    memcpy(&client_fd, args, CLIENT_FD_SIZE);
     char file_name[MAX_CPATH_LEN];
-    strcpy(file_name, args + SESSION_ID_SIZE);
+    memcpy(file_name, args + SESSION_ID_SIZE, MAX_CPATH_LEN);
     int flags;
     memcpy(&flags, args + SESSION_ID_SIZE + MAX_CPATH_LEN, SESSION_ID_SIZE);
-
-    /* Protect the session_get function call */
-    if (pthread_mutex_lock(&server_mutex) != 0) {
-        exit(1);
-    }
-
-    client_session_t *client_session = session_get(session_id);
-    if (client_session == NULL) {
-        exit(1);
-    }
-
-    /* TODO: lock session */
-    int client_fd = client_session->client_fd;
-
-    if (pthread_mutex_unlock(&server_mutex) != 0) {
-        exit(1);
-    }
 
     /* Stores the return value of tfs_open() */
     int ret;
@@ -363,29 +376,11 @@ void tfs_server_close(void const *arg) {
     char *args = (char*) arg;
 
     /* Gets the arguments we need for the close command:
-     * session_id | fhandle */
-    int session_id;
-    memcpy(&session_id, args, SESSION_ID_SIZE);
+     * client_fd | fhandle */
+    int client_fd;
+    memcpy(&client_fd, args, CLIENT_FD_SIZE);
     int fhandle;
     memcpy(&fhandle, args + SESSION_ID_SIZE, FHANDLE_SIZE);
-
-    /* Protect the session_get function call */
-    if (pthread_mutex_lock(&server_mutex) != 0) {
-        exit(1);
-    }
-
-    client_session_t *client_session = session_get(session_id);
-    if (client_session == NULL) {
-        exit(1);
-    }
-
-    /* TODO: lock session */
-    int client_fd = client_session->client_fd;
-
-    if (pthread_mutex_unlock(&server_mutex) != 0) {
-        exit(1);
-    }
-
 
     /* Stores the return value of tfs_close() */
     int ret;
@@ -406,32 +401,15 @@ void tfs_server_write(void const *arg) {
     char *args = (char*) arg;
 
     /* Gets the arguments we need for the write command:
-     * session_id | fhandle | len | <data to write> */
-    int session_id;
-    memcpy(&session_id, args, SESSION_ID_SIZE);
+     * client_fd | fhandle | len | <data to write> */
+    int client_fd;
+    memcpy(&client_fd, args, CLIENT_FD_SIZE);
     int fhandle;
     memcpy(&fhandle, args + SESSION_ID_SIZE, FHANDLE_SIZE);
     size_t len;
     memcpy(&len, args + SESSION_ID_SIZE + FHANDLE_SIZE, LEN_SIZE);
     char to_write[len];
-    strcpy(to_write, args + SESSION_ID_SIZE + FHANDLE_SIZE + len);
-
-    /* Protect the session_get function call */
-    if (pthread_mutex_lock(&server_mutex) != 0) {
-        exit(1);
-    }
-
-    client_session_t *client_session = session_get(session_id);
-    if (client_session == NULL) {
-        exit(1);
-    }
-
-    /* TODO: lock session */
-    int client_fd = client_session->client_fd;
-
-    if (pthread_mutex_unlock(&server_mutex) != 0) {
-        exit(1);
-    }
+    memcpy(to_write, args + SESSION_ID_SIZE + FHANDLE_SIZE + LEN_SIZE, MAX_RDWR_SIZE);
 
     /* Stores the return value of tfs_close() */
     ssize_t ret;
@@ -452,30 +430,13 @@ void tfs_server_read(void const *arg) {
     char *args = (char*) arg;
 
     /* Gets the arguments we need for the read command:
-     * session_id | fhandle | len */
-    int session_id;
-    memcpy(&session_id, args, SESSION_ID_SIZE);
+     * client_fd | fhandle | len */
+    int client_fd;
+    memcpy(&client_fd, args, CLIENT_FD_SIZE);
     int fhandle;
     memcpy(&fhandle, args + SESSION_ID_SIZE, FHANDLE_SIZE);
     size_t len;
     memcpy(&len, args + SESSION_ID_SIZE + FHANDLE_SIZE, LEN_SIZE);
-
-    /* Protect the session_get function call */
-    if (pthread_mutex_lock(&server_mutex) != 0) {
-        exit(1);
-    }
-
-    client_session_t *client_session = session_get(session_id);
-    if (client_session == NULL) {
-        exit(1);
-    }
-
-    /* TODO: lock session */
-    int client_fd = client_session->client_fd;
-
-    if (pthread_mutex_unlock(&server_mutex) != 0) {
-        exit(1);
-    }
     
     /* Stores the return value of tfs_read() */
     ssize_t ret;
@@ -496,28 +457,11 @@ void tfs_server_shutdown(void const *arg) {
     char *args = (char*) arg;
 
     /* Gets the arguments we need for the read command:
-     * session_id | fhandle */
-    int session_id;
-    memcpy(&session_id, args, SESSION_ID_SIZE);
+     * client_fd | fhandle */
+    int client_fd;
+    memcpy(&client_fd, args, CLIENT_FD_SIZE);
     int fhandle;
     memcpy(&fhandle, args + SESSION_ID_SIZE, FHANDLE_SIZE);
-
-    /* Protect the session_get function call */
-    if (pthread_mutex_lock(&server_mutex) != 0) {
-        exit(1);
-    }
-
-    client_session_t *client_session = session_get(session_id);
-    if (client_session == NULL) {
-        exit(1);
-    }
-
-    /* TODO: lock session */
-    int client_fd = client_session->client_fd;
-
-    if (pthread_mutex_unlock(&server_mutex) != 0) {
-        exit(1);
-    }
 
     /* Stores the return value of tfs_destroy_after_all_closed() */
     int ret;
@@ -535,7 +479,6 @@ void tfs_server_shutdown(void const *arg) {
 
 
 int main(int argc, char **argv) {
-
     if (argc < 2) {
         printf("Please specify the pathname of the server's pipe.\n");
         return 1;
@@ -548,7 +491,6 @@ int main(int argc, char **argv) {
     tfs_server_init(pipename);
 
     int server_fd;
-
     /* Opens the server's pipe for future reading */
     server_fd = open_until_success(pipename, O_RDONLY);
     if (server_fd == -1) {
@@ -561,55 +503,98 @@ int main(int argc, char **argv) {
         char request_buffer[MAX_REQUEST_SIZE];
 
         ssize_t offset = 0, rd;
-        while ((rd = read(server_fd, request_buffer + offset, MAX_REQUEST_SIZE)) != MAX_REQUEST_SIZE && errno == EINTR) {
-            /* If read returns 0, we "reboot" the server */
-            if (rd == 0) {
+        while ((rd = read_until_success(server_fd, request_buffer + offset, MAX_REQUEST_SIZE)) !=
+                                                                MAX_REQUEST_SIZE && errno == EINTR) {
+            /* "Reboots" the server if needed */
+            if (rd <= 0) {
                 if (close_until_success(server_fd) != 0) {
                     exit(1);
                 }
-                if ((server_fd = open_until_success(pipename, O_RDONLY)) != 0) {
+                server_fd = open_until_success(pipename, O_RDONLY);
+                if (server_fd == -1) {
                     exit(1);
                 }
             }
             /* Updates the current offset */
             offset += rd;
         }
-
+        
+        client_session_t *client_session;
         char op_code = request_buffer[0];
+
+        int session_id = -1;
+        /* Gets the client's session id from the buffer */
+        memcpy(request_buffer + OP_CODE_SIZE, &session_id, SESSION_ID_SIZE);
+
+        if (op_code != TFS_OP_CODE_MOUNT || op_code != TFS_OP_CODE_UNMOUNT) {
+            /* Protect the session_get function call */
+            if (pthread_mutex_lock(&server_mutex) != 0) {
+                exit(1);
+            }
+
+            client_session = session_get(session_id);
+            if (client_session == NULL) {
+                exit(1);
+            }
+
+            int client_fd = client_session->client_fd;
+
+            if (pthread_mutex_unlock(&server_mutex) != 0) {
+                exit(1);
+            }
+
+            /* replaces the "session_id" in the buffer with the client's file descriptor, to be
+             * used by the server to connect to the client's pipe on future function calls, write,
+             * read, open, close and shutdown */
+            memcpy(request_buffer + OP_CODE_SIZE, &client_fd, CLIENT_FD_SIZE);
+        }
 
         switch(op_code) {
             /* "request_buffer+1" is used to skip the OP_CODE */
 
-            case 1:
+            case TFS_OP_CODE_MOUNT:
                 tfs_server_mount(request_buffer+OP_CODE_SIZE);
                 break;
             
-            case 2:
-                tfs_server_unmount(request_buffer+OP_CODE_SIZE);
+            case TFS_OP_CODE_UNMOUNT:
+                session_cond_wait(client_session);
+                pthread_create(&session_thread_table[session_id], NULL, (void*)tfs_server_unmount, request_buffer+OP_CODE_SIZE);
+                session_cond_signal(client_session);
                 break;
             
-            case 3:
-                tfs_server_open(request_buffer+OP_CODE_SIZE);
+            case TFS_OP_CODE_OPEN:
+                session_cond_wait(client_session);
+                pthread_create(&session_thread_table[session_id], NULL, (void*)tfs_server_open, request_buffer+OP_CODE_SIZE);
+                session_cond_signal(client_session);
                 break;
 
-            case 4:
-                tfs_server_close(request_buffer+OP_CODE_SIZE);
+            case TFS_OP_CODE_CLOSE:
+                session_cond_wait(client_session);
+                pthread_create(&session_thread_table[session_id], NULL, (void*)tfs_server_close, request_buffer+OP_CODE_SIZE);
+                session_cond_signal(client_session);
                 break;
 
-            case 5:
-                tfs_server_write(request_buffer+OP_CODE_SIZE);
+            case TFS_OP_CODE_WRITE:
+                session_cond_wait(client_session);
+                pthread_create(&session_thread_table[session_id], NULL, (void*)tfs_server_write, request_buffer+OP_CODE_SIZE);
+                session_cond_signal(client_session);
                 break;
 
-            case 6:
-                tfs_server_read(request_buffer+OP_CODE_SIZE);
+            case TFS_OP_CODE_READ:
+                session_cond_wait(client_session);
+                pthread_create(&session_thread_table[session_id], NULL, (void*)tfs_server_read, request_buffer+OP_CODE_SIZE);
+                session_cond_signal(client_session);
                 break;
 
-            case 7:
-                tfs_server_shutdown(request_buffer+OP_CODE_SIZE);
+            case TFS_OP_CODE_SHUTDOWN_AFTER_ALL_CLOSED:
+                session_cond_wait(client_session);
+                pthread_create(&session_thread_table[session_id], NULL, (void*)tfs_server_shutdown, request_buffer+OP_CODE_SIZE);
+                session_cond_signal(client_session);
                 break;
 
             default:
-                printf("oii :)\n");
+                /* Esta entrega...kinda embarassing ngl, sry :c */
+                printf("Invalid OP_CODE\n");
                 break;
         }
     }

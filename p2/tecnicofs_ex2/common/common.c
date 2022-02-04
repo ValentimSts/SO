@@ -58,7 +58,6 @@ int open_until_success(char const *pipe_path, int oflag) {
         /* Nothing to do */
     }
     /* Returns the current fd, if -1 it will be dealt with later */
-    printf("open fd: %d\n", fd);
     return fd;
 }
 

@@ -30,6 +30,12 @@
 /* Size the flags take in the buffer */
 #define FLAG_SIZE (sizeof(int))
 
+/* Size of a block (the maximum size we can write to/read from a file) */
+#define MAX_RDWR_SIZE (1024)
+
+/* Size of a client's file descriptor */
+#define CLIENT_FD_SIZE (sizeof(int))
+
 /* Size of the return values sent to the clients by the server
  * as confirmation that the command as been executed (used for
  * every command except "read" and "write")*/
@@ -40,7 +46,7 @@
 #define RDWR_VAL_SIZE (sizeof(ssize_t))
 
 /* Maximum number of sessions to the server */
-#define MAX_SERVER_SESSIONS (1)
+#define MAX_SERVER_SESSIONS (20)
 
 /* Size used for the request buffer to recieve messages from the client */
 #define MAX_REQUEST_SIZE (OP_CODE_SIZE + SESSION_ID_SIZE + FHANDLE_SIZE + LEN_SIZE + 1024)
@@ -49,13 +55,11 @@ typedef struct {
     /* Clients pipe file descriptor */
     int client_fd;
 
-    /* client's mutex / cond var */
-    /*
+    /* Client's mutex / cond var */
     pthread_mutex_t client_mutex;
     pthread_cond_t client_cond;
-    */
-} client_session_t;
 
+} client_session_t;
 
 /* tfs_open flags */
 enum {

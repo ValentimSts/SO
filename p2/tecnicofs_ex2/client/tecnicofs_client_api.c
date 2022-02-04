@@ -25,36 +25,32 @@ int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
     buffer[0] = (char) TFS_OP_CODE_MOUNT;
     memcpy(buffer + OP_CODE_SIZE, client_pipe_path, MAX_CPATH_LEN);
 
-    printf("buffer: %s\n", buffer);
+    unlink(client_pipe_path);
 
-    if (mkfifo(client_pipe_path, 0777) != 0 && errno != EEXIST) {
-        printf("joao1\n");
+    if (mkfifo(client_pipe_path, 0777) != 0) {
         return -1;
     }
     
-    printf("client side server\n");
+    printf("write client\n");
     /* Opens the server's pipe for every future writing */
     server_fd = open_until_success(server_pipe_path, O_WRONLY);
     if (server_fd == -1) {
         unlink(client_pipe_path);
-        printf("joao2\n");
         return -1;
     }
 
     if (write_until_success(server_fd, buffer, buffer_size) != 0) {
         close_until_success(server_fd);
         unlink(client_pipe_path);
-        printf("joao3\n");
         return -1;
     }
 
-    printf("client side client\n");
+    printf("read client\n");
     /* Opens the client's pipe for every future reading (in the same session) */
     client_fd = open_until_success(client_pipe_path, O_RDONLY);
     if (client_fd == -1) {
         close_until_success(server_fd);
         unlink(client_pipe_path);
-        printf("joao4\n");
         return -1;
     }
 
@@ -66,10 +62,11 @@ int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
         return -1;
     }
 
+    printf("%d\n", curr_session_id);
+
     /* In case the server sent a -1 to the client, an error ocurred on the
      * server's side, and so, we return error */
     if (curr_session_id == -1) {
-        printf("joao6\n");
         return -1;
     }
 
@@ -134,7 +131,7 @@ int tfs_open(char const *name, int flags) {
 
     buffer[0] = (char) TFS_OP_CODE_OPEN;
     memcpy(buffer + OP_CODE_SIZE, &curr_session_id, SESSION_ID_SIZE);
-    strcpy(buffer + OP_CODE_SIZE + SESSION_ID_SIZE, name);
+    memcpy(buffer + OP_CODE_SIZE + SESSION_ID_SIZE, name, MAX_CPATH_LEN);
     memcpy(buffer + OP_CODE_SIZE + SESSION_ID_SIZE + MAX_CPATH_LEN, &flags, FLAG_SIZE);
 
     if (write_until_success(server_fd, buffer, buffer_size) != 0) {
@@ -188,8 +185,8 @@ int tfs_close(int fhandle) {
 
 
 ssize_t tfs_write(int fhandle, void const *buffer, size_t len) {
-    /* Size of the buffer used (1024 comes from the size of a block) */
-    size_t buffer_size = OP_CODE_SIZE + SESSION_ID_SIZE + FHANDLE_SIZE + LEN_SIZE + len;
+    /* Size of the buffer used (MAX_RDWR_SIZE comes from the size of a block) */
+    size_t buffer_size = OP_CODE_SIZE + SESSION_ID_SIZE + FHANDLE_SIZE + LEN_SIZE + MAX_RDWR_SIZE;
 
     /* Buffer used to send write commands to the server
      * - Structure:
@@ -222,7 +219,7 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t len) {
 
 
 ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
-    size_t buffer_size = OP_CODE_SIZE + SESSION_ID_SIZE + FHANDLE_SIZE + LEN_SIZE + len;
+    size_t buffer_size = OP_CODE_SIZE + SESSION_ID_SIZE + FHANDLE_SIZE + LEN_SIZE + MAX_RDWR_SIZE;
 
     /* Buffer used to send read commands to the server
      * - Structure:
