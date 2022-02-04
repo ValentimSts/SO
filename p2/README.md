@@ -1,4 +1,4 @@
 # Perguntas
 
- - Devemos fazer close() e open() ate sucesso? ou ter algum tipo de mecanismo que tenta fazer close()/open() pelo menos 5 vezes
- - 
+ - como lidar com erros de mutex's (por ex.) exit(1)?return?
+ - verificar tamanho do client pipe path? 

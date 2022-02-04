@@ -3,23 +3,37 @@
 
 /* Maximum size of the client's pipe path name */
 #define MAX_CPATH_LEN (40)
-
 /* Size the op_code takes in the buffer */
 #define OP_CODE_SIZE (sizeof(char))
+/* Size the session id takes in the buffer */
+#define SESSION_ID_SIZE (sizeof(int))
+/* Size the fhandle takes in the buffer */
+#define FHANDLE_SIZE (sizeof(int))
+/* Size the len takes in the buffer */
+#define LEN_SIZE (sizeof(size_t))
+/* Size of the return values sent to the clients by the server
+ * as confirmation that the command as been executed */
+#define RETURN_VAL_SIZE (sizeof(int))
+
 
 /* TODO: check where to put the defines/structs here or "config.h" */
+
 
 /* Maximum number of sessions to the server */
 #define MAX_SERVER_SESSIONS (1)
 
-#define MAX_REQUEST_SIZE (OP_CODE_SIZE + 2*sizeof(int) + sizeof(size_t) /* + size maximo de um ficheiro (bloco) */)
+#define MAX_REQUEST_SIZE (OP_CODE_SIZE + SESSION_ID_SIZE + FHANDLE_SIZE + LEN_SIZE + 1024)
 
 typedef struct {
-    /* Client pipe path's name */
-    char path_name[MAX_CPATH_LEN];
-
     /* Clients pipe file descriptor */
     int client_fd;
+
+    /* client's mutex / cond var */
+    /*
+    pthread_mutex_t client_mutex;
+    pthread_cond_t client_cond;
+    */
+
 } client_session_t;
 
 
