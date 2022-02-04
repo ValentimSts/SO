@@ -192,7 +192,7 @@ int tfs_unmount() {
 int tfs_open(char const *name, int flags) {
     /* Size of the buffer used. Since "name" has a maximum size of 40 we use the same
      * macro as the one used for the client_pipe_path length */
-    size_t buffer_size = OP_CODE_SIZE + SESSION_ID_SIZE + MAX_CPATH_LEN + sizeof(int);
+    size_t buffer_size = OP_CODE_SIZE + SESSION_ID_SIZE + MAX_CPATH_LEN + FLAG_SIZE;
 
     /* Buffer used to send open commands to the server
      * - Structure:
