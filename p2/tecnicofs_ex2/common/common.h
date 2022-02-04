@@ -1,5 +1,16 @@
 #ifndef COMMON_H
-#define COMMON_H
+#define COMMON_Hs
+
+#include <fcntl.h>
+#include <pthread.h>
+#include <stdbool.h>
+#include <errno.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#include <signal.h>
+#include <string.h>
+#include <stdlib.h>
 
 /* Maximum size of the client's pipe path name */
 #define MAX_CPATH_LEN (40)
@@ -28,13 +39,10 @@
  * "read" and "write" command calls */
 #define RDWR_VAL_SIZE (sizeof(ssize_t))
 
-
-/* TODO: check where to put the defines/structs here or "config.h" */
-
-
 /* Maximum number of sessions to the server */
 #define MAX_SERVER_SESSIONS (1)
 
+/* Size used for the request buffer to recieve messages from the client */
 #define MAX_REQUEST_SIZE (OP_CODE_SIZE + SESSION_ID_SIZE + FHANDLE_SIZE + LEN_SIZE + 1024)
 
 typedef struct {
@@ -46,7 +54,6 @@ typedef struct {
     pthread_mutex_t client_mutex;
     pthread_cond_t client_cond;
     */
-
 } client_session_t;
 
 
@@ -67,5 +74,10 @@ enum {
     TFS_OP_CODE_READ = 6,
     TFS_OP_CODE_SHUTDOWN_AFTER_ALL_CLOSED = 7
 };
+
+int write_until_success(int fd, void const *source, size_t size);
+int read_until_success(int fd, void *destination, size_t size);
+int open_until_success(char const *pipe_path, int oflag);
+int close_until_success(int fd);
 
 #endif /* COMMON_H */

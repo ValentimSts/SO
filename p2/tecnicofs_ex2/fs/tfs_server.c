@@ -2,18 +2,7 @@
 
 /* Extra includes */
 #include "common/common.h"
-#include <fcntl.h>
-#include <pthread.h>
-#include <stdbool.h>
-#include <errno.h>
-#include <sys/stat.h>
 #include <sys/types.h>
-#include <sys/wait.h>
-#include <unistd.h>
-#include <signal.h>
-#include <string.h>
-#include <stdlib.h>
-
 
 /* Session ID table */
 static client_session_t session_id_table[MAX_SERVER_SESSIONS];
@@ -34,83 +23,6 @@ static pthread_cond_t shutdown_cond;
 
 static inline bool valid_session_id(int session_id) {
     return session_id >= 0 && session_id < MAX_SERVER_SESSIONS;
-}
-
-
-/* 
- * Makes sure "write()" actually writes all the bytes the user requested
- * Inputs:
- *  - file descriptor to write to
- *  - source of the data to write
- *  - size of the data
- * Returns: 0 if successful, -1 otherwise
- */
-int write_until_success(int fd, void const *source, size_t size) {
-    ssize_t wr;
-    while ((wr = write(fd, source, size)) != size && errno == EINTR) {
-        /* Nothing to do */
-    }
-    /* If even after the cycle write() hasn't written all the bytes
-     * we want, -1 is returned */
-    if (wr != size) {
-        return -1;
-    }
-    return 0;
-}
-
-
-/* 
- * Makes sure "read()" actually reads all the bytes the user requested
- * Inputs:
- *  - file descriptor to read from
- *  - destination of the content read
- *  - size of the content
- * Returns: 0 if successful, -1 otherwise
- */
-int read_until_success(int fd, void *destination, size_t size) {
-    ssize_t offset = 0, rd;
-    /* TODO: fd + offset maybe? */
-    while ((rd = read(fd, destination + offset, size)) != size && errno == EINTR) {
-        /* Updates the current offset */
-        offset += rd;
-    }
-    /* If even after the cycle, read() hasn't read all the bytes
-     * we want, -1 is returned */
-    if (rd != size) {
-        return -1;
-    }
-    return 0;
-}
-
-
-/*
- * Makes sure "open()" actually opens the pipe given
- * Inputs:
- *  - path to the pipe
- * Returns: file descriptor of the pipe if successful, -1 otherwise
- */
-int open_until_success(char const *pipe_path, int oflag) {
-    int fd;
-    while ((fd = open(pipe_path, oflag)) == -1 && errno == EINTR) {
-        /* Nothing to do */
-    }
-    /* Returns the current fd, if -1 it will be dealt with later */
-    return fd;
-}
-
-
-/*
- * Makes sure "close()" actually closes the file given
- * Inputs:
- *  - file descriptor to close
- * Returns: 0 if successful, -1 otherwise
- */
-int close_until_success(int const fd) {
-    int x;
-    while ((x = close(fd)) == -1 && errno == EINTR) {
-        /* Nothing to do */
-    }
-    return x;
 }
 
 
@@ -209,6 +121,8 @@ int session_id_alloc() {
             if (pthread_mutex_unlock(&server_mutex) != 0) {
                 return -1;
             }
+
+            printf("%d\n", i);
             return i;
         }
     }
@@ -286,6 +200,9 @@ void tfs_server_mount(void const *arg) {
     char client_pipe_path[MAX_CPATH_LEN];
     strcpy(client_pipe_path, args);
 
+    printf("cpath: %s\n", client_pipe_path);
+    
+    printf("server side\n");
     /* Opens the client's pipe for every future witing */
     int client_fd = open_until_success(client_pipe_path, O_WRONLY);
     if (client_fd == -1) {
@@ -294,6 +211,8 @@ void tfs_server_mount(void const *arg) {
     }
 
     int session_id = session_id_alloc();
+
+    printf("session id: %d\n", session_id);
 
     if (pthread_mutex_lock(&server_mutex) != 0) {
         exit(1);
