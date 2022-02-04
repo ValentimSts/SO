@@ -1,5 +1,5 @@
 #ifndef COMMON_H
-#define COMMON_Hs
+#define COMMON_H
 
 #include <fcntl.h>
 #include <pthread.h>
